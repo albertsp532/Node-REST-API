@@ -1,6 +1,6 @@
 /*
 The MIT License (MIT)
-Copyright (c) 2014 Joel Takvorian
+Copyright (c) 2014 Joel Takvorian, https://github.com/jotak/mipod
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -58,44 +58,120 @@ var MpdClient = (function () {
         return mpd.deferred.promise;
     };
 
-    MpdClient.execAndForget = function (cmd) {
-        new MpdClient(cmd).deferred.promise.done();
+    MpdClient.play = function () {
+        return MpdClient.exec("play");
     };
 
-    MpdClient.play = function () {
-        this.execAndForget("play");
+    MpdClient.playEntry = function (path) {
+        return MpdClient.clear().then(function (res) {
+            return MpdClient.add(path);
+        }).then(MpdClient.play);
+    };
+
+    MpdClient.playIdx = function (idx) {
+        return MpdClient.exec("play " + idx);
     };
 
     MpdClient.pause = function () {
-        this.execAndForget("pause");
+        return MpdClient.exec("pause");
     };
 
     MpdClient.stop = function () {
-        this.execAndForget("stop");
+        return MpdClient.exec("stop");
     };
 
     MpdClient.prev = function () {
-        this.execAndForget("previous");
+        return MpdClient.exec("previous");
     };
 
     MpdClient.next = function () {
-        this.execAndForget("next");
+        return MpdClient.exec("next");
     };
 
     MpdClient.clear = function () {
-        this.execAndForget("clear");
+        return MpdClient.exec("clear");
     };
 
     MpdClient.add = function (uri) {
-        this.execAndForget("add " + uri);
+        return MpdClient.exec("add \"" + uri + "\"");
     };
 
     MpdClient.load = function (playlist) {
-        this.execAndForget("load " + playlist);
+        return MpdClient.exec("load \"" + playlist + "\"");
+    };
+
+    MpdClient.volume = function (value) {
+        return MpdClient.exec("setvol " + value);
+    };
+
+    MpdClient.repeat = function (enabled) {
+        return MpdClient.exec("repeat " + (enabled ? "1" : "0"));
+    };
+
+    MpdClient.random = function (enabled) {
+        return MpdClient.exec("random " + (enabled ? "1" : "0"));
+    };
+
+    MpdClient.single = function (enabled) {
+        return MpdClient.exec("single " + (enabled ? "1" : "0"));
+    };
+
+    MpdClient.consume = function (enabled) {
+        return MpdClient.exec("consume " + (enabled ? "1" : "0"));
+    };
+
+    MpdClient.seek = function (songIdx, posInSong) {
+        return MpdClient.exec("seek " + songIdx + " " + posInSong);
+    };
+
+    MpdClient.removeFromQueue = function (songIdx) {
+        return MpdClient.exec("delete " + songIdx);
+    };
+
+    MpdClient.deleteList = function (name) {
+        return MpdClient.exec("rm \"" + name + "\"");
+    };
+
+    MpdClient.saveList = function (name) {
+        return MpdClient.deleteList(name).then(function (res) {
+            return MpdClient.exec("save \"" + name + "\"");
+        });
+    };
+
+    MpdClient.lsinfo = function (dir) {
+        return MpdClient.exec("lsinfo \"" + dir + "\"");
+    };
+
+    MpdClient.playAll = function (allPaths) {
+        if (allPaths.length == 0) {
+            return q.fcall(function () {
+                return "OK";
+            });
+        }
+
+        // Play first entry immediately, then add remaining, to avoid latence effect
+        return MpdClient.playEntry(allPaths[0]).then(function (res) {
+            return MpdClient.addAll(allPaths.slice(1));
+        });
+    };
+
+    MpdClient.addAll = function (allPaths) {
+        if (allPaths.length == 0) {
+            return q.fcall(function () {
+                return "OK";
+            });
+        }
+        return MpdClient.add(allPaths[0]).then(function (tmpResponse) {
+            return MpdClient.addAll(allPaths.slice(1));
+        });
+    };
+
+    MpdClient.update = function (uri) {
+        return MpdClient.exec("update \"" + uri + "\"");
     };
 
     MpdClient.custom = function (cmd) {
-        this.execAndForget(cmd);
+        return MpdClient.exec(cmd);
     };
     MpdClient.host = "localhost";
     MpdClient.port = 6600;

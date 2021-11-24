@@ -1,6 +1,6 @@
 /*
 The MIT License (MIT)
-Copyright (c) 2014 Joel Takvorian
+Copyright (c) 2014 Joel Takvorian, https://github.com/jotak/mipod
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -27,36 +27,35 @@ import q = require('q');
 class LibLoader {
     static loaded: boolean = false;
     static loadingCounter: number = 0;
-    static tree: Tree;
-    static treeDescriptor: string[];
+    static allSongs: SongInfo[];
 
-    static loadOnce(res, treeDescriptor: string[]) {
+    static loadOnce(res) {
         if (this.loaded) {
             // Already loaded, no need to load again.
-            // Note that if the treeDescriptor has changed, client should use "reload" instead
             res.send({status: "OK", numberOfItems: this.loadingCounter});
         } else {
-            this.treeDescriptor = treeDescriptor;
             var that = this;
-            loadAllLib(treeDescriptor).then(function(json: Tree) {
-                that.tree = json;
+            loadAllLib().then(function(json: SongInfo[]) {
+                that.allSongs = json;
                 that.loaded = true;
                 res.send({status: "OK", numberOfItems: that.loadingCounter});
             }).done();
         }
     }
 
-    static reload(res, treeDescriptor: string[]) {
+    static reload(res) {
         this.loaded = false;
         this.loadingCounter = 0;
-        this.tree = undefined;
-        this.loadOnce(res, treeDescriptor);
+        this.allSongs = undefined;
+        this.loadOnce(res);
     }
 
-    static getPage(res, start: number, count: number) {
+    static getPage(res, start: number, count: number, treeDescriptor: string[], leafDescriptor: string[]) {
         if (this.loaded) {
-            var page: PageSeekerInfo = seekSongsForPage({songs: [], start: start, count: count, treeInfo: {}, treeDescriptor: this.treeDescriptor}, this.tree.root, 0);
-            var subTree: Tree = organizeJsonLib(page.songs, this.treeDescriptor);
+            var subTree: Tree = organizeJsonLib(
+                getSongsPage(this.allSongs, start, count),
+                treeDescriptor,
+                leafDescriptor);
             res.send({status: "OK", data: subTree.root});
         } else {
             res.send({status: "Error: loading still in progress"}).end();
@@ -65,6 +64,16 @@ class LibLoader {
 
     static progress(res) {
         res.send(new String(this.loadingCounter));
+    }
+
+    static lsInfo(dir: string, leafDescriptor: string[]): q.Promise<any[]> {
+        return MpdClient.lsinfo(dir)
+            .then(function(response: string) {
+                var lines: string[] = response.split("\n");
+                return q.fcall<any[]>(function() {
+                    return parseFlatDir(lines, leafDescriptor);
+                });
+            });
     }
 }
 export = LibLoader;
@@ -85,7 +94,6 @@ interface SongInfo {
     date?: string;
     genre?: string;
     composer?: string;
-    display?: string;
 }
 
 interface ParserInfo {
@@ -94,16 +102,24 @@ interface ParserInfo {
     cursor: number;
 }
 
-function loadAllLib(treeDescriptor: string[]): q.Promise<Tree> {
-    var tree = loadDirForLib([], "")
+interface KeyValue {
+    key: string;
+    value: string;
+}
+function splitOnce(str: string, separator: string): KeyValue {
+    var i = str.indexOf(separator);
+    return {key: str.slice(0, i), value: str.slice(i+separator.length)};
+}
+
+function loadAllLib(): q.Promise<SongInfo[]> {
+    return loadDirForLib([], "")
         .then(function(parser: ParserInfo) {
-            return organizeJsonLib(parser.songs, treeDescriptor);
+            return parser.songs;
         });
-    return tree;
 }
 
 function loadDirForLib(songs: SongInfo[], dir: string): q.Promise<ParserInfo> {
-    return MpdClient.exec("lsinfo \"" + dir + "\"")
+    return MpdClient.lsinfo(dir)
         .then(function(response: string) {
             var lines: string[] = response.split("\n");
             return parseNext({ songs: songs, lines: lines, cursor: 0 });
@@ -142,46 +158,25 @@ function loadDirForLib(songs: SongInfo[], dir: string): q.Promise<ParserInfo> {
 function parseNext(parser: ParserInfo): q.Promise<ParserInfo> {
     var currentSong: SongInfo = null;
     for (; parser.cursor < parser.lines.length; parser.cursor++) {
-        var elts = parser.lines[parser.cursor].split(": ");
-        var key = elts[0];
-        var value = elts[1];
-        if (key == "file") {
-            var currentSong: SongInfo = { "file": value };
+        var entry: KeyValue = splitOnce(parser.lines[parser.cursor], ": ");
+        var currentSong: SongInfo;
+        if (entry.key == "file") {
+            currentSong = { "file": entry.value };
             parser.songs.push(currentSong);
             LibLoader.loadingCounter++;
-        } else if (key == "directory") {
+        } else if (entry.key == "directory") {
             currentSong = null;
             // Load (async) the directory content, and then only continue on parsing what remains here
-            return loadDirForLib(parser.songs, value)
+            return loadDirForLib(parser.songs, entry.value)
                 .then(function(subParser: ParserInfo) {
                     // this "subParser" contains gathered songs, whereas the existing "parser" contains previous cursor information that we need to continue on this folder
                     return parseNext({ songs: subParser.songs, lines: parser.lines, cursor: parser.cursor + 1 });
                 });
-        } else if (key == "playlist") {
+        } else if (entry.key == "playlist") {
             // skip
             currentSong = null;
         } else if (currentSong != null) {
-            if (key == "Last-Modified") {
-                currentSong.lastModified = value;
-            } else if (key == "Time") {
-                currentSong.time = +value;
-            } else if (key == "Artist") {
-                currentSong.artist = value;
-            } else if (key == "AlbumArtist") {
-                currentSong.albumArtist = value;
-            } else if (key == "Title") {
-                currentSong.title = value;
-            } else if (key == "Album") {
-                currentSong.album = value;
-            } else if (key == "Track") {
-                currentSong.track = value;
-            } else if (key == "Date") {
-                currentSong.date = value;
-            } else if (key == "Genre") {
-                currentSong.genre = value;
-            } else if (key == "Composer") {
-                currentSong.composer = value;
-            }
+            fillSongData(currentSong, entry.key, entry.value);
         }
     }
     // Did not find any sub-directory, return directly this data
@@ -190,8 +185,57 @@ function parseNext(parser: ParserInfo): q.Promise<ParserInfo> {
     });
 }
 
+function parseFlatDir(lines: string[], leafDescriptor: string[]): any[] {
+    var currentSong: SongInfo = null;
+    var dirContent: any[] = [];
+    for (var i = 0; i < lines.length; i++) {
+        var entry: KeyValue = splitOnce(lines[i], ": ");
+        var currentSong: SongInfo;
+        if (entry.key == "file" || entry.key == "playlist") {
+            currentSong = { "file": entry.value };
+            dirContent.push(currentSong);
+        } else if (entry.key == "directory") {
+            currentSong = null;
+            dirContent.push({ directory: entry.value });
+        } else if (currentSong != null) {
+            fillSongData(currentSong, entry.key, entry.value);
+        }
+    }
+    return dirContent.map(function(inObj) {
+        var outObj = {};
+        leafDescriptor.forEach(function(key: string) {
+            outObj[key] = inObj[key];
+        });
+        return outObj;
+    });
+}
+
+function fillSongData(song: SongInfo, key: string, value: string) {
+    if (key == "Last-Modified") {
+        song.lastModified = value;
+    } else if (key == "Time") {
+        song.time = +value;
+    } else if (key == "Artist") {
+        song.artist = value;
+    } else if (key == "AlbumArtist") {
+        song.albumArtist = value;
+    } else if (key == "Title") {
+        song.title = value;
+    } else if (key == "Album") {
+        song.album = value;
+    } else if (key == "Track") {
+        song.track = value;
+    } else if (key == "Date") {
+        song.date = value;
+    } else if (key == "Genre") {
+        song.genre = value;
+    } else if (key == "Composer") {
+        song.composer = value;
+    }
+}
+
 // Returns a custom object tree corresponding to the descriptor
-function organizeJsonLib(flat: SongInfo[], treeDescriptor: string[]): Tree {
+function organizeJsonLib(flat: SongInfo[], treeDescriptor: string[], leafDescriptor: string[]): Tree {
     var tree = {};
     flat.forEach(function(song: SongInfo) {
         var treePtr: any = tree;
@@ -211,54 +255,19 @@ function organizeJsonLib(flat: SongInfo[], treeDescriptor: string[]): Tree {
             treePtr = treePtr[valueForKey];
             depth++;
         });
-        var display: string = song.display
-            || (song.track ? song.track + " - " : "") + song.title;
-        treePtr.push({"file": song.file, "display": display});
+        var leaf = {};
+        leafDescriptor.forEach(function(key: string) {
+            leaf[key] = song[key];
+        });
+        treePtr.push(leaf);
     });
     return {root: tree};
 }
 
-interface PageSeekerInfo {
-    songs: SongInfo[];
-    start: number;
-    count: number;
-    treeInfo: any;
-    treeDescriptor: string[];
-}
-
-function seekSongsForPage(info: PageSeekerInfo, treePtr: any, depth: number): PageSeekerInfo {
-    var ret: PageSeekerInfo = {
-        songs: info.songs,
-        start: info.start,
-        count: info.count,
-        treeInfo: info.treeInfo,
-        treeDescriptor: info.treeDescriptor
-    };
-
-    if (depth == ret.treeDescriptor.length) {
-        // songs are in this level
-        var nbSongsHere: number = treePtr.length;
-        if (nbSongsHere > ret.start) {
-            // There's songs to be added here
-            var nbSongsToAdd: number = Math.min(nbSongsHere - ret.start, ret.count - ret.songs.length);
-            var splice: SongInfo[] = treePtr.slice(ret.start, ret.start + nbSongsToAdd);
-            splice.forEach(function(song: SongInfo) {
-                for (var tag in ret.treeInfo) {
-                    song[tag] = ret.treeInfo[tag];
-                }
-            });
-            ret.songs = ret.songs.concat(splice);
-        }
-        ret.start = Math.max(0, ret.start - nbSongsHere);
-    } else {
-        // go deeper
-        for (var item in treePtr) {
-            ret.treeInfo[ret.treeDescriptor[depth]] = item;
-            ret = seekSongsForPage(ret, treePtr[item], depth + 1);
-            if (ret.songs.length == ret.count) {
-                return ret;
-            }
-        }
+function getSongsPage(allSongs: SongInfo[], start: number, count: number): SongInfo[] {
+    var end: number = Math.min(allSongs.length, start + count);
+    if (end > start) {
+        return allSongs.slice(start, end);
     }
-    return ret;
+    return [];
 }

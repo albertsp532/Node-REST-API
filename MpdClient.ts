@@ -1,6 +1,6 @@
 /*
 The MIT License (MIT)
-Copyright (c) 2014 Joel Takvorian
+Copyright (c) 2014 Joel Takvorian, https://github.com/jotak/mipod
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -61,49 +61,120 @@ class MpdClient {
         this.port = port;
     }
 
-    static exec(cmd: string): q.Promise<string> {
+    private static exec(cmd: string): q.Promise<string> {
         var mpd = new MpdClient(cmd);
         return mpd.deferred.promise;
     }
 
-    private static execAndForget(cmd: string) {
-        new MpdClient(cmd).deferred.promise.done();
+    static play(): q.Promise<string> {
+        return MpdClient.exec("play");
     }
 
-    static play() {
-        this.execAndForget("play");
+    static playEntry(path: string): q.Promise<string> {
+        return MpdClient.clear().then(function(res: string) {
+            return MpdClient.add(path);
+        }).then(MpdClient.play);
     }
 
-    static pause() {
-        this.execAndForget("pause");
+    static playIdx(idx: number): q.Promise<string> {
+        return MpdClient.exec("play " + idx);
     }
 
-    static stop() {
-        this.execAndForget("stop");
+    static pause(): q.Promise<string> {
+        return MpdClient.exec("pause");
     }
 
-    static prev() {
-        this.execAndForget("previous");
+    static stop(): q.Promise<string> {
+        return MpdClient.exec("stop");
     }
 
-    static next() {
-        this.execAndForget("next");
+    static prev(): q.Promise<string> {
+        return MpdClient.exec("previous");
     }
 
-    static clear() {
-        this.execAndForget("clear");
+    static next(): q.Promise<string> {
+        return MpdClient.exec("next");
     }
 
-    static add(uri: string) {
-        this.execAndForget("add " + uri);
+    static clear(): q.Promise<string> {
+        return MpdClient.exec("clear");
     }
 
-    static load(playlist: string) {
-        this.execAndForget("load " + playlist);
+    static add(uri: string): q.Promise<string> {
+        return MpdClient.exec("add \"" + uri + "\"");
     }
 
-    static custom(cmd: string) {
-        this.execAndForget(cmd);
+    static load(playlist: string): q.Promise<string> {
+        return MpdClient.exec("load \"" + playlist + "\"");
+    }
+
+    static volume(value: string): q.Promise<string> {
+        return MpdClient.exec("setvol " + value);
+    }
+
+    static repeat(enabled: boolean): q.Promise<string> {
+        return MpdClient.exec("repeat " + (enabled ? "1" : "0"));
+    }
+
+    static random(enabled: boolean): q.Promise<string> {
+        return MpdClient.exec("random " + (enabled ? "1" : "0"));
+    }
+
+    static single(enabled: boolean): q.Promise<string> {
+        return MpdClient.exec("single " + (enabled ? "1" : "0"));
+    }
+
+    static consume(enabled: boolean): q.Promise<string> {
+        return MpdClient.exec("consume " + (enabled ? "1" : "0"));
+    }
+
+    static seek(songIdx: number, posInSong: number): q.Promise<string> {
+        return MpdClient.exec("seek " + songIdx + " " + posInSong);
+    }
+
+    static removeFromQueue(songIdx: number): q.Promise<string> {
+        return MpdClient.exec("delete " + songIdx);
+    }
+
+    static deleteList(name: string): q.Promise<string> {
+        return MpdClient.exec("rm \"" + name + "\"");
+    }
+
+    static saveList(name: string): q.Promise<string> {
+        return MpdClient.deleteList(name).then(function(res: string) {
+            return MpdClient.exec("save \"" + name + "\"");
+        });
+    }
+
+    static lsinfo(dir: string): q.Promise<string> {
+        return MpdClient.exec("lsinfo \"" + dir + "\"");
+    }
+
+    static playAll(allPaths: string[]): q.Promise<string> {
+        if (allPaths.length == 0) {
+            return q.fcall<string>(function() { return "OK"; });
+        }
+        // Play first entry immediately, then add remaining, to avoid latence effect
+        return MpdClient.playEntry(allPaths[0]).then(function(res: string) {
+            return MpdClient.addAll(allPaths.slice(1))
+        });
+    }
+
+    static addAll(allPaths: string[]): q.Promise<string> {
+        if (allPaths.length == 0) {
+            return q.fcall<string>(function() { return "OK"; });
+        }
+        return MpdClient.add(allPaths[0]).then(function(tmpResponse: string) {
+            return MpdClient.addAll(allPaths.slice(1));
+        });
+    }
+
+    static update(uri: string): q.Promise<string> {
+        return MpdClient.exec("update \"" + uri + "\"");
+    }
+
+    static custom(cmd: string): q.Promise<string> {
+        return MpdClient.exec(cmd);
     }
 }
 export = MpdClient;

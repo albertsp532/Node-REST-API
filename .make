@@ -1,1 +1,1 @@
-server.ts --outDir generated --module commonjs
+mipod-rest.ts --outDir generated --module commonjs
