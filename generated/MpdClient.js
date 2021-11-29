@@ -23,16 +23,20 @@ var q = require('q');
 
 "use strict";
 var MpdClient = (function () {
-    function MpdClient(cmd) {
+    function MpdClient(cmd, stopper) {
         this.ack = false;
         this.deferred = q.defer();
         this.cmd = cmd + "\n";
         this.socket = net.createConnection(MpdClient.port, MpdClient.host);
         var that = this;
+        var response = "";
         this.socket.on('data', function (data) {
             if (that.ack) {
-                that.socket.destroy();
-                that.deferred.resolve(String(data));
+                response += String(data);
+                if (!stopper || response.indexOf(stopper, response.length - stopper.length) !== -1) {
+                    that.socket.destroy();
+                    that.deferred.resolve(response.trim());
+                }
             } else {
                 that.ack = true;
                 that.socket.write(that.cmd);
@@ -53,8 +57,9 @@ var MpdClient = (function () {
         this.port = port;
     };
 
-    MpdClient.exec = function (cmd) {
-        var mpd = new MpdClient(cmd);
+    MpdClient.exec = function (cmd, stopper) {
+        console.log(cmd);
+        var mpd = new MpdClient(cmd, stopper);
         return mpd.deferred.promise;
     };
 
@@ -93,7 +98,19 @@ var MpdClient = (function () {
     };
 
     MpdClient.add = function (uri) {
-        return MpdClient.exec("add \"" + uri + "\"");
+        var cmd = "add";
+
+        // Playlists need to be "loaded" instead of "added"
+        if (uri.indexOf(".m3u") >= 0 || uri.indexOf(".pls") >= 0 || uri.indexOf("/") < 0) {
+            cmd = "load";
+        }
+        return MpdClient.exec(cmd + " \"" + uri + "\"").then(function (response) {
+            if (response == "OK") {
+                return response;
+            } else {
+                throw new Error(response);
+            }
+        });
     };
 
     MpdClient.load = function (playlist) {
@@ -139,7 +156,7 @@ var MpdClient = (function () {
     };
 
     MpdClient.lsinfo = function (dir) {
-        return MpdClient.exec("lsinfo \"" + dir + "\"");
+        return MpdClient.exec("lsinfo \"" + dir + "\"", "\nOK\n");
     };
 
     MpdClient.playAll = function (allPaths) {
@@ -168,6 +185,14 @@ var MpdClient = (function () {
 
     MpdClient.update = function (uri) {
         return MpdClient.exec("update \"" + uri + "\"");
+    };
+
+    MpdClient.rate = function (uri, rate) {
+        return MpdClient.exec("sticker set song \"" + uri + "\" rating " + rate);
+    };
+
+    MpdClient.getRate = function (uri) {
+        return MpdClient.exec("sticker get song \"" + uri + "\" rating");
     };
 
     MpdClient.custom = function (cmd) {

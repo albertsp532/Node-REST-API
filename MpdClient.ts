@@ -29,14 +29,18 @@ class MpdClient {
     cmd: string;
     socket;
 
-    constructor(cmd: string) {
+    constructor(cmd: string, stopper?: string) {
         this.cmd = cmd + "\n";
         this.socket = net.createConnection(MpdClient.port, MpdClient.host);
         var that = this;
+        var response: string = "";
         this.socket.on('data', function(data) {
             if (that.ack) {
-                that.socket.destroy();
-                that.deferred.resolve(String(data));
+                response += String(data);
+                if (!stopper || response.indexOf(stopper, response.length - stopper.length) !== -1) {
+                    that.socket.destroy();
+                    that.deferred.resolve(response.trim());
+                }
             } else {
                 that.ack = true;
                 that.socket.write(that.cmd);
@@ -61,8 +65,9 @@ class MpdClient {
         this.port = port;
     }
 
-    private static exec(cmd: string): q.Promise<string> {
-        var mpd = new MpdClient(cmd);
+    private static exec(cmd: string, stopper?: string): q.Promise<string> {
+        console.log(cmd);
+        var mpd = new MpdClient(cmd, stopper);
         return mpd.deferred.promise;
     }
 
@@ -101,7 +106,20 @@ class MpdClient {
     }
 
     static add(uri: string): q.Promise<string> {
-        return MpdClient.exec("add \"" + uri + "\"");
+        var cmd: string = "add";
+        // Playlists need to be "loaded" instead of "added"
+        if (uri.indexOf(".m3u") >= 0
+                || uri.indexOf(".pls") >= 0
+                || uri.indexOf("/") < 0/*for MPD-created playlists*/) {
+            cmd = "load";
+        }
+        return MpdClient.exec(cmd + " \"" + uri + "\"").then(function(response: string) {
+            if (response == "OK") {
+                return response;
+            } else {
+                throw new Error(response);
+            }
+        });
     }
 
     static load(playlist: string): q.Promise<string> {
@@ -147,7 +165,7 @@ class MpdClient {
     }
 
     static lsinfo(dir: string): q.Promise<string> {
-        return MpdClient.exec("lsinfo \"" + dir + "\"");
+        return MpdClient.exec("lsinfo \"" + dir + "\"", "\nOK\n");
     }
 
     static playAll(allPaths: string[]): q.Promise<string> {
@@ -171,6 +189,14 @@ class MpdClient {
 
     static update(uri: string): q.Promise<string> {
         return MpdClient.exec("update \"" + uri + "\"");
+    }
+
+    static rate(uri: string, rate: number): q.Promise<string> {
+        return MpdClient.exec("sticker set song \"" + uri + "\" rating " + rate);
+    }
+
+    static getRate(uri: string): q.Promise<string> {
+        return MpdClient.exec("sticker get song \"" + uri + "\" rating");
     }
 
     static custom(cmd: string): q.Promise<string> {

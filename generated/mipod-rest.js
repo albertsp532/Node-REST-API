@@ -23,25 +23,30 @@ SOFTWARE.
 var express = require('express');
 var bodyParser = require('body-parser');
 var routes = require('./routes');
+var LibLoader = require('./LibLoader');
 
 "use strict";
 var app = express();
 app.use(bodyParser.json());
-var port = 8081;
+var port = 80;
 var mpdRestRoot = "/mpd";
 var libraryRestRoot = "/library";
+var library = new LibLoader();
+var refreshOnStartup = false;
 
 function usage() {
     console.log("Usage: node mipod-rest [options=values]");
     console.log("");
     console.log("Options:");
-    console.log("  -p, --port          setup server port (default 8081)");
+    console.log("  -p, --port          setup server port (default 80)");
     console.log("  -m, --mpdRoot       setup MPD-related root for REST requests (default /mpd)");
     console.log("  -l, --libraryRoot   setup library-related root for REST requests (default /library)");
+    console.log("  --useLibCache       use given file for library cache");
+    console.log("  --refreshOnStartup  load library from MPD on startup");
     console.log("  -h, --help          this");
     console.log("");
     console.log("Example:");
-    console.log("  node mipod-rest -p=80 -m=/some/resource -l=/another/resource");
+    console.log("  node mipod-rest -p=81 -m=/some/resource -l=/another/resource");
     console.log("");
     console.log("More documentation available on https://github.com/jotak/mipod");
 }
@@ -59,6 +64,12 @@ var mapParams = {
     },
     "--libraryRoot": function (val) {
         libraryRestRoot = val;
+    },
+    "--useLibCache": function (val) {
+        library.useCacheFile(val);
+    },
+    "--refreshOnStartup": function (val) {
+        refreshOnStartup = true;
     },
     "--help": function (val) {
         usage();
@@ -91,8 +102,12 @@ process.argv.forEach(function (arg, index, array) {
     }
 });
 
-routes.register(app, mpdRestRoot, libraryRestRoot);
+routes.register(app, mpdRestRoot, libraryRestRoot, library);
 
 app.listen(port);
+
+if (refreshOnStartup) {
+    library.forceRefresh();
+}
 
 console.log('Server running on port ' + port);

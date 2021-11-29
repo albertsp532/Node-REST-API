@@ -25,25 +25,30 @@ SOFTWARE.
 import express = require('express');
 import bodyParser = require('body-parser');
 import routes = require('./routes');
+import LibLoader = require('./LibLoader');
 
 "use strict";
 var app = express();
 app.use(bodyParser.json());
-var port: number = 8081;
+var port: number = 80;
 var mpdRestRoot: string = "/mpd";
 var libraryRestRoot: string = "/library";
+var library: LibLoader = new LibLoader();
+var refreshOnStartup: boolean = false;
 
 function usage() {
     console.log("Usage: node mipod-rest [options=values]");
     console.log("");
     console.log("Options:");
-    console.log("  -p, --port          setup server port (default 8081)");
+    console.log("  -p, --port          setup server port (default 80)");
     console.log("  -m, --mpdRoot       setup MPD-related root for REST requests (default /mpd)");
     console.log("  -l, --libraryRoot   setup library-related root for REST requests (default /library)");
+    console.log("  --useLibCache       use given file for library cache");
+    console.log("  --refreshOnStartup  load library from MPD on startup");
     console.log("  -h, --help          this");
     console.log("");
     console.log("Example:");
-    console.log("  node mipod-rest -p=80 -m=/some/resource -l=/another/resource");
+    console.log("  node mipod-rest -p=81 -m=/some/resource -l=/another/resource");
     console.log("");
     console.log("More documentation available on https://github.com/jotak/mipod");
 }
@@ -61,6 +66,12 @@ var mapParams: { [key: string]: (val: string) => void; } = {
     },
     "--libraryRoot": function(val: string) {
         libraryRestRoot = val;
+    },
+    "--useLibCache": function(val: string) {
+        library.useCacheFile(val);
+    },
+    "--refreshOnStartup": function(val: string) {
+        refreshOnStartup = true;
     },
     "--help": function(val: string) {
         usage();
@@ -93,8 +104,12 @@ process.argv.forEach(function(arg: string, index: number, array) {
     }
 });
 
-routes.register(app, mpdRestRoot, libraryRestRoot);
+routes.register(app, mpdRestRoot, libraryRestRoot, library);
 
 app.listen(port);
+
+if (refreshOnStartup) {
+    library.forceRefresh();
+}
 
 console.log('Server running on port ' + port);
