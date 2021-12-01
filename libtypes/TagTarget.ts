@@ -17,20 +17,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-/// <reference path="node/node.d.ts" />
-var routes = require('./routes');
-var LibLoader = require('./LibLoader');
 
 "use strict";
 
-function listenRestRoutes(expressApp, libCachePath, options) {
-    var mpdRoot = (options && options.mpdPath) ? options.mpdPath : "/mpd";
-    var libRoot = (options && options.libPath) ? options.libPath : "/library";
-    var lib = new LibLoader();
-    if (libCachePath) {
-        lib.useCacheFile(libCachePath);
-    }
-    routes.register(expressApp, mpdRoot, libRoot, lib);
+interface TagTarget {
+    targetType: string;
+    target: string;
 }
 
-module.exports = listenRestRoutes;
+export = TagTarget;
