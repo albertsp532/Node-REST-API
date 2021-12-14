@@ -17,22 +17,20 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-
 /// <reference path="node/node.d.ts" />
 /// <reference path="express/express.d.ts" />
 /// <reference path="body-parser/body-parser.d.ts" />
+var express = require('express');
+var bodyParser = require('body-parser');
+var mipod = require('./main');
 
-import express = require('express');
-import bodyParser = require('body-parser');
-import mipod = require('./main');
-import LibLoader = require('./LibLoader');
-import O = require('./Options');
+var O = require('./Options');
 
 "use strict";
 var app = express();
 app.use(bodyParser.json());
-var opts: O.IOptions = O.Options.default();
-var port: number = 80;
+var opts = O.Options.default();
+var port = 80;
 
 function usage() {
     console.log("Usage: node mipod-rest [options=values]");
@@ -54,40 +52,40 @@ function usage() {
     console.log("More documentation available on https://github.com/jotak/mipod");
 }
 
-var mapParams: { [key: string]: (val: string) => void; } = {
-    "--port": function(val: string) {
+var mapParams = {
+    "--port": function (val) {
         port = +val;
         if (isNaN(port)) {
             console.log("Invalid port");
             process.exit(0);
         }
     },
-    "--mpdRoot": function(val: string) {
+    "--mpdRoot": function (val) {
         opts.mpdRestPath = val;
     },
-    "--libraryRoot": function(val: string) {
+    "--libraryRoot": function (val) {
         opts.libRestPath = val;
     },
-    "--mpdHost": function(val: string) {
+    "--mpdHost": function (val) {
         opts.mpdHost = val;
     },
-    "--mpdPort": function(val: string) {
+    "--mpdPort": function (val) {
         opts.mpdPort = +val;
         if (isNaN(opts.mpdPort)) {
             console.log("Invalid MPD port");
             process.exit(0);
         }
     },
-    "--dataPath": function(val: string) {
+    "--dataPath": function (val) {
         opts.dataPath = val;
     },
-    "--dontUseLibCache": function(val: string) {
+    "--dontUseLibCache": function (val) {
         opts.useLibCache = false;
     },
-    "--loadLibOnStartup": function(val: string) {
+    "--loadLibOnStartup": function (val) {
         opts.loadLibOnStartup = true;
     },
-    "--help": function(val: string) {
+    "--help": function (val) {
         usage();
         process.exit(0);
     }
@@ -98,12 +96,12 @@ mapParams["-m"] = mapParams["--mpdRoot"];
 mapParams["-l"] = mapParams["--libraryRoot"];
 mapParams["-h"] = mapParams["--help"];
 
-process.argv.forEach(function(arg: string, index: number, array) {
+process.argv.forEach(function (arg, index, array) {
     if (index > 1) {
-        var key: string = arg;
-        var value: string = null;
+        var key = arg;
+        var value = null;
         if (arg.indexOf("=") > 0) {
-            var keyVal: string[] = arg.split("=");
+            var keyVal = arg.split("=");
             key = keyVal[0];
             value = keyVal[1];
         }

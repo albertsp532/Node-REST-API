@@ -17,41 +17,24 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-
-/**
-* Overrides content of 'receiver' with 'provider'
-*/
-export function override<T>(receiver: T, provider: T) {
-    for (var prop in provider) {
-        if ({}.hasOwnProperty.call(provider, prop)) {
-            if ({}.hasOwnProperty.call(receiver, prop)) {
-                if (typeof provider[prop] === 'object') {
-                    this.override(receiver[prop], provider[prop]);
-                } else {
-                    receiver[prop] = provider[prop];
-                }
-            } else {
-                receiver[prop] = provider[prop];
-            }
+"use strict";
+var Options;
+(function (_Options) {
+    var Options = (function () {
+        function Options(dataPath, useLibCache, mpdRestPath, libRestPath, loadLibOnStartup, mpdHost, mpdPort) {
+            this.dataPath = dataPath;
+            this.useLibCache = useLibCache;
+            this.mpdRestPath = mpdRestPath;
+            this.libRestPath = libRestPath;
+            this.loadLibOnStartup = loadLibOnStartup;
+            this.mpdHost = mpdHost;
+            this.mpdPort = mpdPort;
         }
-    }
-    return receiver;
-}
-
-/**
-* Extend missing content of 'receiver' with 'provider'
-*/
-export function extend<T>(receiver: T, provider: T) {
-    for (var prop in provider) {
-        if ({}.hasOwnProperty.call(provider, prop)) {
-            if ({}.hasOwnProperty.call(receiver, prop)) {
-                if (typeof provider[prop] === 'object') {
-                    this.extend(receiver[prop], provider[prop]);
-                }
-            } else {
-                receiver[prop] = provider[prop];
-            }
-        }
-    }
-    return receiver;
-}
+        Options.default = function () {
+            return new Options("data", true, "/mpd", "/library", false, "localhost", 6600);
+        };
+        return Options;
+    })();
+    _Options.Options = Options;
+})(Options || (Options = {}));
+module.exports = Options;

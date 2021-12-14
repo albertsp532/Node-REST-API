@@ -17,11 +17,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-
 /**
 * Overrides content of 'receiver' with 'provider'
 */
-export function override<T>(receiver: T, provider: T) {
+function override(receiver, provider) {
     for (var prop in provider) {
         if ({}.hasOwnProperty.call(provider, prop)) {
             if ({}.hasOwnProperty.call(receiver, prop)) {
@@ -37,11 +36,12 @@ export function override<T>(receiver: T, provider: T) {
     }
     return receiver;
 }
+exports.override = override;
 
 /**
 * Extend missing content of 'receiver' with 'provider'
 */
-export function extend<T>(receiver: T, provider: T) {
+function extend(receiver, provider) {
     for (var prop in provider) {
         if ({}.hasOwnProperty.call(provider, prop)) {
             if ({}.hasOwnProperty.call(receiver, prop)) {
@@ -55,3 +55,4 @@ export function extend<T>(receiver: T, provider: T) {
     }
     return receiver;
 }
+exports.extend = extend;

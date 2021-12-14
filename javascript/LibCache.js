@@ -17,34 +17,32 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-
 /// <reference path="node/node.d.ts" />
 /// <reference path="q/Q.d.ts" />
-import fs = require('fs');
-import q = require('q');
-import SongInfo = require('./libtypes/SongInfo');
-import ThemeTags = require('./libtypes/ThemeTags');
+var fs = require('fs');
+var q = require('q');
 
 "use strict";
 
-class LibCache {
-
-    static loadCache(filepath: string): q.Promise<SongInfo[]> {
-        var deferred: q.Deferred<SongInfo[]> = q.defer<SongInfo[]>();
-        fs.readFile(filepath, {encoding: "utf8"}, function(err, data) {
+var LibCache = (function () {
+    function LibCache() {
+    }
+    LibCache.loadCache = function (filepath) {
+        var deferred = q.defer();
+        fs.readFile(filepath, { encoding: "utf8" }, function (err, data) {
             if (err) {
                 deferred.reject(err);
             } else {
-                var jsonContent: SongInfo[] = eval('(' + data + ')');
+                var jsonContent = eval('(' + data + ')');
                 deferred.resolve(jsonContent);
             }
         });
         return deferred.promise;
-    }
+    };
 
-    static saveCache(filepath: string, data: SongInfo[]): q.Promise<string> {
-        var deferred: q.Deferred<string> = q.defer<string>();
-        fs.writeFile(filepath, JSON.stringify(data), function(err) {
+    LibCache.saveCache = function (filepath, data) {
+        var deferred = q.defer();
+        fs.writeFile(filepath, JSON.stringify(data), function (err) {
             if (err) {
                 deferred.reject(new Error(err.code));
             } else {
@@ -52,24 +50,24 @@ class LibCache {
             }
         });
         return deferred.promise;
-    }
+    };
 
-    static loadTags(filepath: string): q.Promise<ThemeTags> {
-        var deferred: q.Deferred<ThemeTags> = q.defer<ThemeTags>();
-        fs.readFile(filepath, {encoding: "utf8"}, function(err, data) {
+    LibCache.loadTags = function (filepath) {
+        var deferred = q.defer();
+        fs.readFile(filepath, { encoding: "utf8" }, function (err, data) {
             if (err) {
                 deferred.reject(err);
             } else {
-                var jsonContent: ThemeTags = eval('(' + data + ')');
+                var jsonContent = eval('(' + data + ')');
                 deferred.resolve(jsonContent);
             }
         });
         return deferred.promise;
-    }
+    };
 
-    static saveTags(filepath: string, data: ThemeTags): q.Promise<string> {
-        var deferred: q.Deferred<string> = q.defer<string>();
-        fs.writeFile(filepath, JSON.stringify(data), function(err) {
+    LibCache.saveTags = function (filepath, data) {
+        var deferred = q.defer();
+        fs.writeFile(filepath, JSON.stringify(data), function (err) {
             if (err) {
                 deferred.reject(new Error(err.code));
             } else {
@@ -77,6 +75,7 @@ class LibCache {
             }
         });
         return deferred.promise;
-    }
-}
-export = LibCache;
+    };
+    return LibCache;
+})();
+module.exports = LibCache;
