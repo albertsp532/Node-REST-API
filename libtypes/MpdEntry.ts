@@ -18,29 +18,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+import SongInfo = require('./SongInfo');
+
 "use strict";
 
-module Options {
-    export interface IOptions {
-        dataPath?: string;
-        useLibCache?: boolean;
-        prefix?: string;
-        loadLibOnStartup?: boolean;
-        mpdHost?: string;
-        mpdPort?: number;
-    }
-
-    export class Options implements IOptions {
-        constructor(public dataPath: string,
-                    public useLibCache: boolean,
-                    public prefix: string,
-                    public loadLibOnStartup: boolean,
-                    public mpdHost: string,
-                    public mpdPort: number) {
-        }
-        static default(): IOptions {
-            return new Options("data", true, "/mipod", false, "localhost", 6600);
-        }
-    }
+interface MpdEntry {
+    song?: SongInfo;
+    dir?: string;
+    playlist?: string;
 }
-export = Options
+export = MpdEntry;

@@ -17,27 +17,33 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+
 /// <reference path="node/node.d.ts" />
 /// <reference path="express/express.d.ts" />
-/// <reference path="body-parser/body-parser.d.ts" />
-var express = require('express');
-var bodyParser = require('body-parser');
-var mipod = require('./main');
+/// <reference path="socket.io/socket.io.d.ts" />
 
-var O = require('./Options');
+import express = require('express');
+import http = require('http');
+import socketio = require('socket.io');
+import mipod = require('./main');
+import LibLoader = require('./LibLoader');
+import O = require('./Options');
 
 "use strict";
 var app = express();
-app.use(bodyParser.json());
-var opts = O.Options.default();
-var port = 80;
+var httpServer = http.createServer(app);
+var websock = socketio.listen(httpServer);
+
+var opts: O.IOptions = O.Options.default();
+opts.prefix = "";
+var port: number = 80;
 
 function usage() {
-    console.log("Usage: node mipod-rest [options=values]");
+    console.log("Usage: node mipod-ws [options=values]");
     console.log("");
     console.log("Options:");
     console.log("  -p=$X, --port=$X                setup server port (default 80)");
-    console.log("  --prefix=$path                  setup prefix for REST resources (default /mipod)");
+    console.log("  --prefix=$path                  setup prefix for websocket events (default empty)");
     console.log("  --mpdHost=$host                 MPD server hostname (default localhost)");
     console.log("  --mpdPort=$X                    MPD server port (default 6600)");
     console.log("  --dataPath=$path                local path where data files will be stored");
@@ -46,42 +52,42 @@ function usage() {
     console.log("  -h, --help                      this");
     console.log("");
     console.log("Example:");
-    console.log("  node mipod-rest -p=81 --root=/site/mpd");
+    console.log("  node mipod-ws -p=81 --root=/site/mpd");
     console.log("");
     console.log("More documentation available on https://github.com/jotak/mipod");
 }
 
-var mapParams = {
-    "--port": function (val) {
+var mapParams: { [key: string]: (val: string) => void; } = {
+    "--port": function(val: string) {
         port = +val;
         if (isNaN(port)) {
             console.log("Invalid port");
             process.exit(0);
         }
     },
-    "--prefix": function (val) {
+    "--prefix": function(val: string) {
         opts.prefix = val;
     },
-    "--mpdHost": function (val) {
+    "--mpdHost": function(val: string) {
         opts.mpdHost = val;
     },
-    "--mpdPort": function (val) {
+    "--mpdPort": function(val: string) {
         opts.mpdPort = +val;
         if (isNaN(opts.mpdPort)) {
             console.log("Invalid MPD port");
             process.exit(0);
         }
     },
-    "--dataPath": function (val) {
+    "--dataPath": function(val: string) {
         opts.dataPath = val;
     },
-    "--dontUseLibCache": function (val) {
+    "--dontUseLibCache": function(val: string) {
         opts.useLibCache = false;
     },
-    "--loadLibOnStartup": function (val) {
+    "--loadLibOnStartup": function(val: string) {
         opts.loadLibOnStartup = true;
     },
-    "--help": function (val) {
+    "--help": function(val: string) {
         usage();
         process.exit(0);
     }
@@ -90,12 +96,12 @@ var mapParams = {
 mapParams["-p"] = mapParams["--port"];
 mapParams["-h"] = mapParams["--help"];
 
-process.argv.forEach(function (arg, index, array) {
+process.argv.forEach(function(arg: string, index: number, array) {
     if (index > 1) {
-        var key = arg;
-        var value = null;
+        var key: string = arg;
+        var value: string = null;
         if (arg.indexOf("=") > 0) {
-            var keyVal = arg.split("=");
+            var keyVal: string[] = arg.split("=");
             key = keyVal[0];
             value = keyVal[1];
         }
@@ -110,8 +116,10 @@ process.argv.forEach(function (arg, index, array) {
     }
 });
 
-mipod.asRest(app, opts);
+websock.on('connection', function(socket){
+    mipod.asWebSocket(socket, opts);
+});
 
-app.listen(port);
-
-console.log('Server running on port ' + port);
+httpServer.listen(port, function(){
+    console.log('Websocket listening on port ' + port);
+});

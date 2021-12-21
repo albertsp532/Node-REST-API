@@ -17,6 +17,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+var MpdEntries = require('./MpdEntries');
+
 var MpdClient = require('./MpdClient');
 
 var typeCheck = require('type-check');
@@ -39,154 +41,169 @@ function check(typeDesc, obj, httpResponse) {
 }
 
 "use strict";
-function register(app, mpdRoot, libRoot, library) {
+function register(app, prefix, library) {
     var routes = [];
 
     var httpGet = function (path, clbk, description) {
-        app.get(path, clbk);
-        routes.push({ path: path, description: description, verb: "GET" });
+        app.get(prefix + path, clbk);
+        routes.push({ path: prefix + path, description: description, verb: "GET" });
     };
     var httpPost = function (path, clbk, description) {
-        app.post(path, clbk);
-        routes.push({ path: path, description: description, verb: "POST" });
+        app.post(prefix + path, clbk);
+        routes.push({ path: prefix + path, description: description, verb: "POST" });
     };
     var httpPut = function (path, clbk, description) {
-        app.put(path, clbk);
-        routes.push({ path: path, description: description, verb: "PUT" });
+        app.put(prefix + path, clbk);
+        routes.push({ path: prefix + path, description: description, verb: "PUT" });
     };
     var httpDelete = function (path, clbk, description) {
-        app.delete(path, clbk);
-        routes.push({ path: path, description: description, verb: "DELETE" });
+        app.delete(prefix + path, clbk);
+        routes.push({ path: prefix + path, description: description, verb: "DELETE" });
     };
 
-    httpGet(mpdRoot + '/play', function (req, res) {
+    httpGet('/play', function (req, res) {
         answerOnPromise(MpdClient.play(), res);
     });
 
-    httpPost(mpdRoot + '/play', function (req, res) {
-        if (check("{json: String}", req.body, res)) {
-            answerOnPromise(MpdClient.playEntry(req.body.json), res);
+    httpPost('/play', function (req, res) {
+        if (check("{entry: String}", req.body, res)) {
+            answerOnPromise(MpdClient.playEntry(req.body.entry), res);
         }
     });
 
-    httpGet(mpdRoot + '/playidx/:idx', function (req, res) {
+    httpGet('/playidx/:idx', function (req, res) {
         answerOnPromise(MpdClient.playIdx(+req.params.idx), res);
     });
 
-    httpPost(mpdRoot + '/add', function (req, res) {
-        if (check("{json: String}", req.body, res)) {
-            answerOnPromise(MpdClient.add(req.body.json), res);
+    httpPost('/add', function (req, res) {
+        if (check("{entry: String}", req.body, res)) {
+            answerOnPromise(MpdClient.add(req.body.entry), res);
         }
     });
 
-    httpGet(mpdRoot + '/clear', function (req, res) {
+    httpGet('/clear', function (req, res) {
         answerOnPromise(MpdClient.clear(), res);
     });
 
-    httpGet(mpdRoot + '/pause', function (req, res) {
+    httpGet('/pause', function (req, res) {
         answerOnPromise(MpdClient.pause(), res);
     });
 
-    httpGet(mpdRoot + '/stop', function (req, res) {
+    httpGet('/stop', function (req, res) {
         answerOnPromise(MpdClient.stop(), res);
     });
 
-    httpGet(mpdRoot + '/next', function (req, res) {
+    httpGet('/next', function (req, res) {
         answerOnPromise(MpdClient.next(), res);
     });
 
-    httpGet(mpdRoot + '/prev', function (req, res) {
+    httpGet('/prev', function (req, res) {
         answerOnPromise(MpdClient.prev(), res);
     });
 
-    httpGet(mpdRoot + '/volume/:value', function (req, res) {
+    httpGet('/volume/:value', function (req, res) {
         answerOnPromise(MpdClient.volume(req.params.value), res);
     });
 
-    httpGet(mpdRoot + '/repeat/:enabled', function (req, res) {
+    httpGet('/repeat/:enabled', function (req, res) {
         answerOnPromise(MpdClient.repeat(req.params.enabled === "1"), res);
     });
 
-    httpGet(mpdRoot + '/random/:enabled', function (req, res) {
+    httpGet('/random/:enabled', function (req, res) {
         answerOnPromise(MpdClient.random(req.params.enabled === "1"), res);
     });
 
-    httpGet(mpdRoot + '/single/:enabled', function (req, res) {
+    httpGet('/single/:enabled', function (req, res) {
         answerOnPromise(MpdClient.single(req.params.enabled === "1"), res);
     });
 
-    httpGet(mpdRoot + '/consume/:enabled', function (req, res) {
+    httpGet('/consume/:enabled', function (req, res) {
         answerOnPromise(MpdClient.consume(req.params.enabled === "1"), res);
     });
 
-    httpGet(mpdRoot + '/seek/:songIdx/:posInSong', function (req, res) {
+    httpGet('/seek/:songIdx/:posInSong', function (req, res) {
         answerOnPromise(MpdClient.seek(+req.params.songIdx, +req.params.posInSong), res);
     });
 
-    httpGet(mpdRoot + '/rmqueue/:songIdx', function (req, res) {
+    httpGet('/rmqueue/:songIdx', function (req, res) {
         answerOnPromise(MpdClient.removeFromQueue(+req.params.songIdx), res);
     });
 
-    httpGet(mpdRoot + '/deletelist/:name', function (req, res) {
+    httpGet('/deletelist/:name', function (req, res) {
         answerOnPromise(MpdClient.deleteList(req.params.name), res);
     });
 
-    httpGet(mpdRoot + '/savelist/:name', function (req, res) {
+    httpGet('/savelist/:name', function (req, res) {
         answerOnPromise(MpdClient.saveList(req.params.name), res);
     });
 
-    httpPost(mpdRoot + '/playall', function (req, res) {
-        if (check("{json: [String]}", req.body, res)) {
-            answerOnPromise(MpdClient.playAll(req.body.json), res);
+    httpPost('/playall', function (req, res) {
+        if (check("{entries: [String]}", req.body, res)) {
+            answerOnPromise(MpdClient.playAll(req.body.entries), res);
         }
     });
 
-    httpPost(mpdRoot + '/addall', function (req, res) {
-        if (check("{json: [String]}", req.body, res)) {
-            answerOnPromise(MpdClient.addAll(req.body.json), res);
+    httpPost('/addall', function (req, res) {
+        if (check("{entries: [String]}", req.body, res)) {
+            answerOnPromise(MpdClient.addAll(req.body.entries), res);
         }
     });
 
-    httpPost(mpdRoot + '/update', function (req, res) {
-        if (check("{json: String}", req.body, res)) {
-            answerOnPromise(MpdClient.update(req.body.json), res);
+    httpPost('/update', function (req, res) {
+        if (check("{path: String}", req.body, res)) {
+            answerOnPromise(MpdClient.update(req.body.path), res);
         }
     });
 
-    httpGet(mpdRoot + '/custom/:command', function (req, res) {
+    httpGet('/current', function (req, res) {
+        answerOnPromise(MpdClient.current().then(MpdEntries.readEntries).then(function (entries) {
+            return entries.length === 0 ? {} : entries[0];
+        }), res);
+    });
+
+    httpGet('/custom/:command', function (req, res) {
         answerOnPromise(MpdClient.custom(req.params.command), res);
     });
 
-    httpGet(libRoot + '/loadonce', function (req, res) {
+    httpGet('/loadonce', function (req, res) {
         var status = library.loadOnce();
         res.send({ status: status });
     });
 
-    httpGet(libRoot + '/reload', function (req, res) {
+    httpGet('/reload', function (req, res) {
         var status = library.forceRefresh();
         res.send({ status: status });
     });
 
-    httpGet(libRoot + '/progress', function (req, res) {
-        library.progress(res);
+    httpGet('/progress', function (req, res) {
+        res.send({ progress: library.progress() });
     });
 
-    httpGet(libRoot + '/get/:start/:count/:treeDesc?/:leafDesc?', function (req, res) {
-        var treeDesc = req.params.treeDesc || "genre,albumArtist|artist,album";
-        var leafDesc = req.params.leafDesc || "file,track,title";
-        library.getPage(res, +req.params.start, +req.params.count, treeDesc.split(","), leafDesc.split(","));
+    httpPost('/get/:start/:count', function (req, res) {
+        if (check("{treeDesc: Maybe [String], leafDesc: Maybe [String]}", req.body, res)) {
+            var treeDesc = req.body.treeDesc || ["genre", "albumArtist|artist", "album"];
+            var page = library.getPage(+req.params.start, +req.params.count, treeDesc, req.body.leafDesc);
+            res.send(page);
+        }
     });
 
-    httpPost(libRoot + '/lsinfo/:leafDesc?', function (req, res) {
-        var leafDesc = req.params.leafDesc || "file,directory,title,artist,album,time";
-        if (check("{json: String}", req.body, res)) {
-            library.lsInfo(req.body.json, leafDesc.split(",")).then(function (lstContent) {
+    httpPost('/lsinfo', function (req, res) {
+        if (check("{path: String, req.body.leafDesc: Maybe [String]}", req.body, res)) {
+            library.lsInfo(req.body.path, req.body.leafDesc).then(function (lstContent) {
                 res.send(lstContent);
             });
         }
     });
 
-    httpPost(libRoot + '/tag/:tagName/:tagValue?', function (req, res) {
+    httpPost('/search/:mode', function (req, res) {
+        if (check("{search: String, leafDesc: Maybe [String]}", req.body, res)) {
+            library.search(req.params.mode, req.body.search, req.body.leafDesc).then(function (lstContent) {
+                res.send(lstContent);
+            });
+        }
+    });
+
+    httpPost('/tag/:tagName/:tagValue?', function (req, res) {
         var tagName = req.params.tagName;
         var tagValue = req.params.tagValue;
         if (check("{targets: [{targetType: String, target: String}]}", req.body, res)) {
@@ -198,7 +215,7 @@ function register(app, mpdRoot, libRoot, library) {
         }
     });
 
-    app.get("/", function (req, res) {
+    app.get(prefix + '/', function (req, res) {
         var resp = "Available resources: <br/><ul>";
         for (var i in routes) {
             var route = routes[i];

@@ -21,6 +21,8 @@ SOFTWARE.
 /// <reference path="q/Q.d.ts" />
 import net = require('net');
 import q = require('q');
+import MpdEntry = require('./libtypes/MpdEntry');
+import SongInfo = require('./libtypes/SongInfo');
 
 "use strict";
 class MpdClient {
@@ -164,6 +166,10 @@ class MpdClient {
         return MpdClient.exec("lsinfo \"" + dir + "\"", "\nOK\n");
     }
 
+    static search(mode: string, searchstr: string): q.Promise<string> {
+        return MpdClient.exec("search " + mode + " \"" + searchstr + "\"", "\nOK\n");
+    }
+
     static playAll(allPaths: string[]): q.Promise<string> {
         if (allPaths.length == 0) {
             return q.fcall<string>(function() { return "OK"; });
@@ -193,6 +199,10 @@ class MpdClient {
 
     static getRate(uri: string): q.Promise<string> {
         return MpdClient.exec("sticker get song \"" + uri + "\" rating");
+    }
+
+    static current(): q.Promise<string> {
+        return MpdClient.exec("currentsong");
     }
 
     static custom(cmd: string): q.Promise<string> {

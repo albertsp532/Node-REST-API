@@ -155,6 +155,10 @@ var MpdClient = (function () {
         return MpdClient.exec("lsinfo \"" + dir + "\"", "\nOK\n");
     };
 
+    MpdClient.search = function (mode, searchstr) {
+        return MpdClient.exec("search " + mode + " \"" + searchstr + "\"", "\nOK\n");
+    };
+
     MpdClient.playAll = function (allPaths) {
         if (allPaths.length == 0) {
             return q.fcall(function () {
@@ -189,6 +193,10 @@ var MpdClient = (function () {
 
     MpdClient.getRate = function (uri) {
         return MpdClient.exec("sticker get song \"" + uri + "\" rating");
+    };
+
+    MpdClient.current = function () {
+        return MpdClient.exec("currentsong");
     };
 
     MpdClient.custom = function (cmd) {

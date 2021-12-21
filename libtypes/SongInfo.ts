@@ -32,5 +32,7 @@ interface SongInfo {
     date?: string;
     genre?: string;
     composer?: string;
+    pos?: number;
+    id?: number;
 }
 export = SongInfo;
