@@ -23,7 +23,6 @@ SOFTWARE.
 var express = require('express');
 var bodyParser = require('body-parser');
 var mipod = require('./main');
-
 var O = require('./Options');
 
 "use strict";
@@ -37,7 +36,7 @@ function usage() {
     console.log("");
     console.log("Options:");
     console.log("  -p=$X, --port=$X                setup server port (default 80)");
-    console.log("  --prefix=$path                  setup prefix for REST resources (default /mipod)");
+    console.log("  --prefix=$path                  setup prefix for REST resources (default empty)");
     console.log("  --mpdHost=$host                 MPD server hostname (default localhost)");
     console.log("  --mpdPort=$X                    MPD server port (default 6600)");
     console.log("  --dataPath=$path                local path where data files will be stored");

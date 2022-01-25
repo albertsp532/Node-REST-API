@@ -17,6 +17,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+var MpdStatus = require('./MpdStatus');
 var MpdEntries = require('./MpdEntries');
 
 var MpdClient = require('./MpdClient');
@@ -161,25 +162,41 @@ function register(app, prefix, library) {
         }), res);
     });
 
+    httpGet('/idle', function (req, res) {
+        answerOnPromise(MpdClient.idle(), res);
+    });
+
+    httpGet('/status', function (req, res) {
+        answerOnPromise(MpdClient.status().then(MpdStatus.parse), res);
+    });
+
+    httpGet('/playlistInfo/:idx?', function (req, res) {
+        if (req.params.idx) {
+            answerOnPromise(MpdClient.playlistInfoIdx(+req.params.idx), res);
+        } else {
+            answerOnPromise(MpdClient.playlistInfo(), res);
+        }
+    });
+
     httpGet('/custom/:command', function (req, res) {
         answerOnPromise(MpdClient.custom(req.params.command), res);
     });
 
-    httpGet('/loadonce', function (req, res) {
+    httpGet('/lib-loadonce', function (req, res) {
         var status = library.loadOnce();
         res.send({ status: status });
     });
 
-    httpGet('/reload', function (req, res) {
+    httpGet('/lib-reload', function (req, res) {
         var status = library.forceRefresh();
         res.send({ status: status });
     });
 
-    httpGet('/progress', function (req, res) {
+    httpGet('/lib-progress', function (req, res) {
         res.send({ progress: library.progress() });
     });
 
-    httpPost('/get/:start/:count', function (req, res) {
+    httpPost('/lib-get/:start/:count', function (req, res) {
         if (check("{treeDesc: Maybe [String], leafDesc: Maybe [String]}", req.body, res)) {
             var treeDesc = req.body.treeDesc || ["genre", "albumArtist|artist", "album"];
             var page = library.getPage(+req.params.start, +req.params.count, treeDesc, req.body.leafDesc);
@@ -212,6 +229,13 @@ function register(app, prefix, library) {
             } else {
                 answerOnPromise(library.writeTag(tagName, tagValue, req.body.targets), res);
             }
+        }
+    });
+
+    httpDelete('/tag/:tagName', function (req, res) {
+        var tagName = req.params.tagName;
+        if (check("{targets: [{targetType: String, target: String}]}", req.body, res)) {
+            answerOnPromise(library.deleteTag(tagName, req.body.targets), res);
         }
     });
 

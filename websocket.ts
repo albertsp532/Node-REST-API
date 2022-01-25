@@ -20,7 +20,8 @@ SOFTWARE.
 
 /// <reference path="type-check/type-check.d.ts" />
 
-import LibLoader = require('./LibLoader');
+import Library = require('./Library');
+import MpdStatus = require('./MpdStatus');
 import MpdEntries = require('./MpdEntries');
 import MpdEntry = require('./libtypes/MpdEntry');
 import MpdClient = require('./MpdClient');
@@ -28,12 +29,12 @@ import q = require('q');
 import typeCheck = require('type-check');
 import socketio = require('socket.io');
 
-function answerOnPromise(promise: q.Promise<any>, socket: socketio.Socket, word: string) {
+function answerOnPromise(promise: q.Promise<any>, socket: socketio.Socket, word: string, context?: any) {
     promise.then(function(answer: any) {
-        socket.emit(word, {success: answer});
+        socket.emit(word, {success: answer, context: context});
     }).fail(function(reason: Error) {
         console.log("Application error: " + reason.message);
-        socket.emit(word, {failure: String(reason)});
+        socket.emit(word, {failure: String(reason), context: context});
     }).done();
 }
 
@@ -46,7 +47,7 @@ function check(typeDesc: string, obj: any, socket: socketio.Socket, word: string
 }
 
 "use strict";
-export function register(socket: socketio.Socket, prefix: string, library: LibLoader) {
+export function register(socket: socketio.Socket, prefix: string, library: Library.Loader) {
 
     var word = function(word: string): string { return prefix + word; }
 
@@ -66,9 +67,9 @@ export function register(socket: socketio.Socket, prefix: string, library: LibLo
         }
     });
 
-    socket.on(word("add-entry"), function(body) {
-        if (check("{entry: String}", body, socket, word("add-entry"))) {
-            answerOnPromise(MpdClient.add(body.entry), socket, word("add-entry"));
+    socket.on(word("add"), function(body) {
+        if (check("{entry: String}", body, socket, word("add"))) {
+            answerOnPromise(MpdClient.add(body.entry), socket, word("add"));
         }
     });
 
@@ -170,47 +171,75 @@ export function register(socket: socketio.Socket, prefix: string, library: LibLo
             }), socket, word("current"));
     });
 
+    socket.on(word("status"), function() {
+        answerOnPromise(MpdClient.status().then(MpdStatus.parse), socket, word("status"));
+    });
+
+    socket.on(word("idle"), function() {
+        answerOnPromise(MpdClient.idle(), socket, word("idle"));
+    });
+
+    socket.on(word("notify"), function() {
+        // Send initial notification right now, then enter idle loop
+        answerOnPromise(MpdClient.status().then(MpdStatus.parse), socket, word("notify"));
+        idleLoop(socket, word("notify"));
+    });
+
     socket.on(word("custom"), function(body) {
         if (check("{command: String}", body, socket, word("custom"))) {
             answerOnPromise(MpdClient.custom(body.command), socket, word("custom"));
         }
     });
 
-    socket.on(word("loadonce"), function() {
+    socket.on(word("lib-loadonce"), function() {
         var status: string = library.loadOnce();
-        socket.emit(word("loadonce"), {status: status});
+        socket.emit(word("lib-loadonce"), {status: status});
     });
 
-    socket.on(word("reload"), function() {
+    socket.on(word("lib-reload"), function() {
         var status: string = library.forceRefresh();
-        socket.emit(word("reload"), {status: status});
+        socket.emit(word("lib-reload"), {status: status});
     });
 
-    socket.on(word("progress"), function() {
-        var status: string = library.progress();
-        socket.emit(word("progress"), {progress: status});
+    socket.on(word("lib-progress"), function() {
+        socket.emit(word("lib-progress"), {progress: library.progress()});
     });
 
-    socket.on(word("get"), function(body) {
-        if (check("{start: Number, count: Number, treeDesc: Maybe [String], leafDesc: Maybe [String]}", body, socket, word("get"))) {
+    socket.on(word("lib-get"), function(body) {
+        if (check("{start: Number, count: Number, treeDesc: Maybe [String], leafDesc: Maybe [String]}", body, socket, word("lib-get"))) {
             var treeDesc: string[] = body.treeDesc || ["genre","albumArtist|artist","album"];
             var page = library.getPage(body.start, body.count, treeDesc, body.leafDesc);
-            socket.emit(word("get"), page);
+            socket.emit(word("lib-get"), page);
+        }
+    });
+
+    socket.on(word("lib-push"), function(body) {
+        if (check("{maxBatchSize: Number, treeDesc: Maybe [String], leafDesc: Maybe [String]}", body, socket, word("lib-push"))) {
+            var treeDesc: string[] = body.treeDesc || ["genre","albumArtist|artist","album"];
+            library.onLoadingProgress(
+                function(data: Library.LoadingData, nbItems: number) {
+                    socket.emit(word("lib-push"), {progress: nbItems, data: data});
+                },
+                function(nbItems: number) {
+                    socket.emit(word("lib-finished-loading"), {nbItems: nbItems});
+                },
+                body.maxBatchSize, treeDesc, body.leafDesc
+            );
         }
     });
 
     socket.on(word("lsinfo"), function(body) {
-        if (check("{path: String, leafDesc: Maybe [String]}", body, socket, word("lsinfo"))) {
+        if (check("{token: Maybe Number, path: String, leafDesc: Maybe [String]}", body, socket, word("lsinfo"))) {
             library.lsInfo(body.path, body.leafDesc).then(function(lstContent: any[]) {
-                socket.emit(word("lsinfo"), lstContent);
+                socket.emit(word("lsinfo"), {token: body.token, content: lstContent});
             });
         }
     });
 
     socket.on(word("search"), function(body) {
-        if (check("{mode: String, search: String, leafDesc: Maybe [String]}", body, socket, word("search"))) {
+        if (check("{token: Maybe Number, mode: String, search: String, leafDesc: Maybe [String]}", body, socket, word("search"))) {
             library.search(body.mode, body.search, body.leafDesc).then(function(lstContent: any[]) {
-                socket.emit(word("search"), lstContent);
+                socket.emit(word("search"), {token: body.token, content: lstContent});
             });
         }
     });
@@ -218,10 +247,24 @@ export function register(socket: socketio.Socket, prefix: string, library: LibLo
     socket.on(word("tag"), function(body) {
         if (check("{tagName: String, tagValue: String, targets: [{targetType: String, target: String}]}", body, socket, word("tag"))) {
             if (body.tagValue === undefined) {
-                answerOnPromise(library.readTag(body.tagName, body.targets), socket, word("tag"));
+                answerOnPromise(library.readTag(body.tagName, body.targets), socket, word("tag"), body);
             } else {
-                answerOnPromise(library.writeTag(body.tagName, body.tagValue, body.targets), socket, word("tag"));
+                answerOnPromise(library.writeTag(body.tagName, body.tagValue, body.targets), socket, word("tag"), body);
             }
         }
     });
+
+    socket.on(word("deltag"), function(body) {
+        if (check("{tagName: String, targets: [{targetType: String, target: String}]}", body, socket, word("deltag"))) {
+            answerOnPromise(library.deleteTag(body.tagName, body.targets), socket, word("deltag"), body);
+        }
+    });
+}
+
+function idleLoop(socket: socketio.Socket, word: string) {
+    answerOnPromise(
+        MpdClient.idle().then(MpdClient.status).then(MpdStatus.parse).then(function(json) {
+            idleLoop(socket, word);
+            return json;
+        }), socket, word);
 }

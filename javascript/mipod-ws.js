@@ -24,7 +24,6 @@ var express = require('express');
 var http = require('http');
 var socketio = require('socket.io');
 var mipod = require('./main');
-
 var O = require('./Options');
 
 "use strict";
@@ -33,7 +32,6 @@ var httpServer = http.createServer(app);
 var websock = socketio.listen(httpServer);
 
 var opts = O.Options.default();
-opts.prefix = "";
 var port = 80;
 
 function usage() {
