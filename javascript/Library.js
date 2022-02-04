@@ -34,6 +34,7 @@ var LoadingListener = (function () {
         this.maxBatchSize = maxBatchSize;
         this.treeDescriptor = treeDescriptor;
         this.leafDescriptor = leafDescriptor;
+        this.finished = false;
         this.collected = [];
         this.hTimeout = null;
         this.totalItems = -1;
@@ -44,6 +45,7 @@ var LoadingListener = (function () {
         if (this.nbSent === nbItems) {
             this.finishedHandler(nbItems);
             this.totalItems = -1;
+            this.finished = true;
         }
     };
 
@@ -73,106 +75,155 @@ var LoadingListener = (function () {
             } else if (this.nbSent === this.totalItems) {
                 this.finishedHandler(this.totalItems);
                 this.totalItems = -1;
+                this.finished = true;
             }
         } else {
             if (this.nbSent === this.totalItems) {
                 this.finishedHandler(this.totalItems);
                 this.totalItems = -1;
+                this.finished = true;
             }
         }
+    };
+
+    LoadingListener.prototype.isFinished = function () {
+        return this.finished;
     };
     return LoadingListener;
 })();
 
-var Loader = (function () {
-    function Loader() {
+var Library = (function () {
+    function Library() {
         this.dataPath = "data/";
         this.useCacheFile = false;
         this.allLoaded = false;
-        this.loadingCounter = 0;
+        this.deferredAllLoaded = q.defer();
+        this.loadingCounter = -1;
         this.mpdContent = [];
         this.tags = {};
-        this.loadingListener = undefined;
+        this.loadingListeners = [];
     }
-    Loader.prototype.setUseCacheFile = function (useCacheFile) {
+    Library.prototype.setUseCacheFile = function (useCacheFile) {
         this.useCacheFile = useCacheFile;
     };
 
-    Loader.prototype.setDataPath = function (dataPath) {
+    Library.prototype.setDataPath = function (dataPath) {
         this.dataPath = dataPath;
     };
 
-    Loader.prototype.onLoadingProgress = function (pushHandler, finishedHandler, maxBatchSize, treeDescriptor, leafDescriptor) {
-        this.loadingListener = new LoadingListener(pushHandler, finishedHandler, maxBatchSize, treeDescriptor, leafDescriptor);
+    Library.prototype.init = function () {
+        var that = this;
+        this.loadingCounter = 0;
+        return that.tagsLoader().then(function () {
+            return that.libLoader();
+        }).then(function () {
+            that.allLoaded = true;
+            that.deferredAllLoaded.resolve(null);
+        });
     };
 
-    Loader.prototype.loadOnce = function () {
-        if (this.allLoaded) {
-            // Already loaded, no need to load again.
-            return "Already loaded";
-        } else if (this.loadingCounter > 0) {
-            // Already started to load => ignore
-            return "Load in progress";
-        } else {
-            var that = this;
-            LibCache.loadTags(this.tagsFile()).then(function (data) {
-                that.tags = data;
-            }).fail(function (reason) {
-                console.log("Could not read tags: " + reason.message);
-            }).done();
+    Library.prototype.tagsLoader = function () {
+        var that = this;
+        return LibCache.loadTags(this.tagsFile()).then(function (data) {
+            that.tags = data;
+        }).fail(function (reason) {
+            console.log("Could not read tags: " + reason.message);
+        });
+    };
 
-            if (this.useCacheFile) {
-                LibCache.loadCache(this.cacheFile()).then(function (data) {
-                    that.mpdContent = data;
-                    that.loadingCounter = data.length;
-                    if (that.loadingCounter === 0) {
-                        // Cache file is empty, so we'll try MPD anyway
-                        console.log("Loading from MPD because cache is empty");
-                        that.loadAllLib();
-                    } else {
-                        that.allLoaded = true;
-                        if (that.loadingListener) {
-                            that.loadingListener.setTotalItems(that.mpdContent.length);
-                            that.loadingListener.pushBatches(data, that.tags, 0);
-                        }
-                    }
-                }).fail(function (reason) {
-                    console.log("Could not read cache: " + reason.message);
-                    that.loadAllLib();
-                }).done();
-                return "Start loading from cache";
-            } else {
-                this.loadAllLib();
-                return "Start loading from MPD";
-            }
+    Library.prototype.libLoader = function () {
+        var that = this;
+        if (this.useCacheFile) {
+            return LibCache.loadCache(that.cacheFile()).then(function (data) {
+                that.mpdContent = data;
+                that.loadingCounter = data.length;
+                if (that.loadingCounter === 0) {
+                    // Cache file is empty, so we'll try MPD anyway
+                    console.log("Loading from MPD because cache is empty");
+                    return that.loadAllLib();
+                } else {
+                    that.allLoaded = true;
+                    that.deferredAllLoaded.resolve(null);
+                    that.loadingListeners.forEach(function (listener) {
+                        listener.setTotalItems(that.mpdContent.length);
+                        listener.pushBatches(data, that.tags, 0);
+                    });
+                    that.loadingListeners = [];
+                }
+            }).fail(function (reason) {
+                console.log("Could not read cache: " + reason.message);
+            });
+        } else {
+            return that.loadAllLib();
         }
     };
 
-    Loader.prototype.forceRefresh = function () {
+    Library.prototype.notifyLoading = function (pushHandler, finishedHandler, maxBatchSize, treeDescriptor, leafDescriptor) {
+        // Lazy init if necessary
+        if (this.loadingCounter < 0) {
+            this.init();
+        }
+        var that = this;
+
+        // Create new listener and push already loaded data
+        var listener = new LoadingListener(pushHandler, finishedHandler, maxBatchSize, treeDescriptor, leafDescriptor);
+        listener.setTotalItems(that.mpdContent.length);
+        listener.pushBatches(that.mpdContent, that.tags, 0);
+
+        // Clean any inactive listeners, push the new one
+        var stillActive = [];
+        stillActive.push(listener);
+        this.loadingListeners.forEach(function (listener) {
+            if (!listener.isFinished()) {
+                stillActive.push(listener);
+            }
+        });
+        this.loadingListeners = stillActive;
+    };
+
+    Library.prototype.clearCache = function () {
+        var deferred = q.defer();
         this.allLoaded = false;
-        this.loadingCounter = 0;
+        this.deferredAllLoaded = q.defer();
+        this.loadingCounter = -1;
         this.mpdContent = [];
         this.tags = {};
-        this.loadAllLib();
-        return "OK";
+        if (this.useCacheFile) {
+            LibCache.saveCache(this.cacheFile(), this.mpdContent).then(function () {
+                deferred.resolve(null);
+            }).fail(function (reason) {
+                console.log("Cache not saved: " + reason.message);
+                deferred.reject(reason);
+            });
+        } else {
+            deferred.resolve(null);
+        }
+        return deferred.promise;
     };
 
-    Loader.prototype.getPage = function (start, count, treeDescriptor, leafDescriptor) {
-        var end = Math.min(this.mpdContent.length, start + count);
-        var subTree = organizer(this.getSongsPage(this.mpdContent, start, end), this.tags, treeDescriptor, leafDescriptor);
-        return {
-            status: "OK",
-            finished: (this.allLoaded && end === this.mpdContent.length),
-            next: end,
-            data: subTree.root
-        };
+    Library.prototype.getPage = function (start, count, treeDescriptor, leafDescriptor) {
+        if (this.loadingCounter < 0) {
+            this.init();
+        }
+
+        var that = this;
+        return this.deferredAllLoaded.promise.then(function () {
+            var end = Math.min(that.mpdContent.length, start + count);
+            var subTree = organizer(that.getSongsPage(that.mpdContent, start, end), that.tags, treeDescriptor, leafDescriptor);
+            return {
+                status: "OK",
+                finished: (that.allLoaded && end === that.mpdContent.length),
+                next: end,
+                data: subTree.root
+            };
+        });
     };
 
-    Loader.prototype.progress = function () {
+    Library.prototype.progress = function () {
         return this.loadingCounter;
     };
 
-    Loader.prototype.lsInfo = function (dir, leafDescriptor) {
+    Library.prototype.lsInfo = function (dir, leafDescriptor) {
         var that = this;
         return MpdClient.lsinfo(dir).then(function (response) {
             return q.fcall(function () {
@@ -181,7 +232,7 @@ var Loader = (function () {
         });
     };
 
-    Loader.prototype.search = function (mode, searchstr, leafDescriptor) {
+    Library.prototype.search = function (mode, searchstr, leafDescriptor) {
         var that = this;
         return MpdClient.search(mode, searchstr).then(function (response) {
             return q.fcall(function () {
@@ -190,112 +241,135 @@ var Loader = (function () {
         });
     };
 
-    Loader.prototype.readTag = function (tagName, targets) {
-        if (!this.allLoaded) {
-            throw new Error("Tag reading service is unavailable until the library is fully loaded.");
-        }
-        var returnTags = {};
-        for (var i = 0; i < targets.length; i++) {
-            var targetType = targets[i].targetType;
-            var target = targets[i].target;
-            if (this.tags[targetType] !== undefined && this.tags[targetType][target] !== undefined && this.tags[targetType][target][tagName] !== undefined) {
+    Library.prototype.readTag = function (tagName, targets) {
+        var deferred = q.defer();
+        var that = this;
+        this.deferredAllLoaded.promise.then(function () {
+            var returnTags = {};
+            for (var i = 0; i < targets.length; i++) {
+                var targetType = targets[i].targetType;
+                var target = targets[i].target;
                 var tag = {};
                 var item = {};
                 var theme = {};
-                tag[tagName] = this.tags[targetType][target][tagName];
+                if (that.tags[targetType] !== undefined && that.tags[targetType][target] !== undefined && that.tags[targetType][target][tagName] !== undefined) {
+                    tag[tagName] = that.tags[targetType][target][tagName];
+                } else {
+                    // Tag not found
+                    tag[tagName] = null;
+                }
                 item[target] = tag;
                 theme[targetType] = item;
                 tools.override(returnTags, theme);
             }
-        }
-        return q.fcall(function () {
-            return returnTags;
-        });
-    };
-
-    Loader.prototype.writeTag = function (tagName, tagValue, targets) {
-        if (!this.allLoaded) {
-            throw new Error("Tag writing service is unavailable until the library is fully loaded.");
-        }
-        for (var i = 0; i < targets.length; i++) {
-            var tag = {};
-            var item = {};
-            var theme = {};
-            tag[tagName] = tagValue;
-            item[targets[i].target] = tag;
-            theme[targets[i].targetType] = item;
-            tools.override(this.tags, theme);
-        }
-        var deferred = q.defer();
-        LibCache.saveTags(this.tagsFile(), this.tags).then(function () {
-            deferred.resolve("Tag succesfully written");
-        }).fail(function (reason) {
-            console.log("Cache not saved: " + reason.message);
-            deferred.reject(reason);
+            deferred.resolve(returnTags);
         });
         return deferred.promise;
     };
 
-    Loader.prototype.deleteTag = function (tagName, targets) {
-        if (!this.allLoaded) {
-            throw new Error("Tag writing service is unavailable until the library is fully loaded.");
-        }
-        for (var i = 0; i < targets.length; i++) {
-            if (this.tags.hasOwnProperty(targets[i].targetType) && this.tags[targets[i].targetType].hasOwnProperty(targets[i].target) && this.tags[targets[i].targetType][targets[i].target].hasOwnProperty(tagName)) {
-                delete this.tags[targets[i].targetType][targets[i].target][tagName];
-                if (Object.keys(this.tags[targets[i].targetType][targets[i].target]).length === 0) {
-                    delete this.tags[targets[i].targetType][targets[i].target];
-                    if (Object.keys(this.tags[targets[i].targetType]).length === 0) {
-                        delete this.tags[targets[i].targetType];
+    Library.prototype.writeTag = function (tagName, tagValue, targets) {
+        var deferred = q.defer();
+        var that = this;
+        this.deferredAllLoaded.promise.then(function () {
+            var returnTags = {};
+            for (var i = 0; i < targets.length; i++) {
+                var tag = {};
+                var item = {};
+                var theme = {};
+                tag[tagName] = tagValue;
+                item[targets[i].target] = tag;
+                theme[targets[i].targetType] = item;
+                tools.override(that.tags, theme);
+                tools.override(returnTags, theme);
+            }
+            LibCache.saveTags(that.tagsFile(), that.tags).then(function () {
+                deferred.resolve(returnTags);
+            }).fail(function (reason) {
+                console.log("Cache not saved: " + reason.message);
+                deferred.reject(reason);
+            });
+        });
+        return deferred.promise;
+    };
+
+    Library.prototype.deleteTag = function (tagName, targets) {
+        var deferred = q.defer();
+        var that = this;
+        this.deferredAllLoaded.promise.then(function () {
+            var returnTags = {};
+            for (var i = 0; i < targets.length; i++) {
+                var tag = {};
+                var item = {};
+                var theme = {};
+                tag[tagName] = null;
+                item[targets[i].target] = tag;
+                theme[targets[i].targetType] = item;
+                tools.override(returnTags, theme);
+                if (that.tags.hasOwnProperty(targets[i].targetType) && that.tags[targets[i].targetType].hasOwnProperty(targets[i].target) && that.tags[targets[i].targetType][targets[i].target].hasOwnProperty(tagName)) {
+                    delete that.tags[targets[i].targetType][targets[i].target][tagName];
+                    if (Object.keys(that.tags[targets[i].targetType][targets[i].target]).length === 0) {
+                        delete that.tags[targets[i].targetType][targets[i].target];
+                        if (Object.keys(that.tags[targets[i].targetType]).length === 0) {
+                            delete that.tags[targets[i].targetType];
+                        }
                     }
                 }
             }
-        }
-        var deferred = q.defer();
-        LibCache.saveTags(this.tagsFile(), this.tags).then(function () {
-            deferred.resolve("Tag succesfully deleted");
-        }).fail(function (reason) {
-            console.log("Cache not saved: " + reason.message);
-            deferred.reject(reason);
+            LibCache.saveTags(that.tagsFile(), that.tags).then(function () {
+                deferred.resolve(returnTags);
+            }).fail(function (reason) {
+                console.log("Cache not saved: " + reason.message);
+                deferred.reject(reason);
+            });
         });
         return deferred.promise;
     };
 
-    Loader.prototype.cacheFile = function () {
+    Library.prototype.cacheFile = function () {
         return this.dataPath + "/libcache.json";
     };
 
-    Loader.prototype.tagsFile = function () {
+    Library.prototype.tagsFile = function () {
         return this.dataPath + "/libtags.json";
     };
 
-    Loader.prototype.loadAllLib = function () {
+    Library.prototype.loadAllLib = function () {
+        var start = new Date().getTime();
         var that = this;
-        this.loadDirForLib(this.mpdContent, "").then(function () {
+        var mpdClient = new MpdClient();
+        return mpdClient.connect().then(function () {
+            return that.loadDirForLib(mpdClient, that.mpdContent, "");
+        }).then(function () {
+            var elapsed = new Date().getTime() - start;
+            console.log("finished in " + elapsed / 1000 + " seconds");
             that.allLoaded = true;
-            if (that.loadingListener) {
-                that.loadingListener.setTotalItems(that.mpdContent.length);
-            }
+            that.deferredAllLoaded.resolve(null);
+            that.loadingListeners.forEach(function (listener) {
+                listener.setTotalItems(that.mpdContent.length);
+            });
             if (that.useCacheFile) {
                 LibCache.saveCache(that.cacheFile(), that.mpdContent).fail(function (reason) {
                     console.log("Cache not saved: " + reason.message);
                 });
             }
-        }).done();
-    };
-
-    Loader.prototype.loadDirForLib = function (songs, dir) {
-        var that = this;
-        return MpdClient.lsinfo(dir).then(function (response) {
-            var lines = response.split("\n");
-            return that.parseNext({ songs: songs, lines: lines, cursor: 0 });
+        }).fin(function () {
+            mpdClient.close();
         });
     };
 
-    Loader.prototype.collect = function (song) {
-        if (this.loadingListener) {
-            this.loadingListener.collect(song, this.tags);
-        }
+    Library.prototype.loadDirForLib = function (mpd, songs, dir) {
+        var that = this;
+        return mpd.lsinfo(dir).then(function (response) {
+            var lines = response.split("\n");
+            return that.parseNext({ mpd: mpd, songs: songs, lines: lines, cursor: 0 });
+        });
+    };
+
+    Library.prototype.collect = function (song) {
+        var that = this;
+        this.loadingListeners.forEach(function (listener) {
+            listener.collect(song, that.tags);
+        });
     };
 
     /*
@@ -327,7 +401,7 @@ var Loader = (function () {
     Date: 2004
     Genre: Rock
     */
-    Loader.prototype.parseNext = function (parser) {
+    Library.prototype.parseNext = function (parser) {
         var that = this;
         var currentSong = null;
         for (; parser.cursor < parser.lines.length; parser.cursor++) {
@@ -342,9 +416,9 @@ var Loader = (function () {
                 currentSong = null;
 
                 // Load (async) the directory content, and then only continue on parsing what remains here
-                return this.loadDirForLib(parser.songs, entry.value).then(function (subParser) {
+                return this.loadDirForLib(parser.mpd, parser.songs, entry.value).then(function (subParser) {
                     // this "subParser" contains gathered songs, whereas the existing "parser" contains previous cursor information that we need to continue on this folder
-                    return that.parseNext({ songs: subParser.songs, lines: parser.lines, cursor: parser.cursor + 1 });
+                    return that.parseNext({ mpd: subParser.mpd, songs: subParser.songs, lines: parser.lines, cursor: parser.cursor + 1 });
                 });
             } else if (entry.key === "playlist") {
                 // skip
@@ -362,7 +436,7 @@ var Loader = (function () {
         });
     };
 
-    Loader.prototype.parseFlatDir = function (response, leafDescriptor) {
+    Library.prototype.parseFlatDir = function (response, leafDescriptor) {
         return MpdEntries.readEntries(response).map(function (inObj) {
             if (inObj.dir && (leafDescriptor === undefined || leafDescriptor.indexOf("directory") >= 0)) {
                 return { "directory": inObj.dir };
@@ -388,15 +462,15 @@ var Loader = (function () {
         });
     };
 
-    Loader.prototype.getSongsPage = function (allSongs, start, end) {
+    Library.prototype.getSongsPage = function (allSongs, start, end) {
         if (end > start) {
             return allSongs.slice(start, end);
         }
         return [];
     };
-    return Loader;
+    return Library;
 })();
-exports.Loader = Loader;
+exports.Library = Library;
 
 // Returns a custom object tree corresponding to the descriptor
 function organizer(flat, tags, treeDescriptor, leafDescriptor) {

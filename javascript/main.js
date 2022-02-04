@@ -23,7 +23,8 @@ SOFTWARE.
 var routes = require('./routes');
 var websocket = require('./websocket');
 var tools = require('./tools');
-var Library = require('./Library');
+var lib = require('./Library');
+var Statistics = require('./Statistics');
 var MpdClient = require('./MpdClient');
 var O = require('./Options');
 var typeCheck = require('type-check');
@@ -35,8 +36,8 @@ function asRest(expressApp, options) {
 }
 exports.asRest = asRest;
 
-function asWebSocket(socket, options) {
-    registerMethod(socket, websocket.register, options);
+function asWebSocket(socketMngr, options) {
+    registerMethod(socketMngr, websocket.register, options);
 }
 exports.asWebSocket = asWebSocket;
 
@@ -44,7 +45,7 @@ function registerMethod(methodHandler, methodRegistration, options) {
     var opts = options ? tools.extend(options, O.Options.default()) : O.Options.default();
 
     // Since this module can be imported from JS applications (non-typescript), we'll add some runtime type-check on Options
-    var scheme = "{dataPath: String, useLibCache: Boolean, prefix: String, loadLibOnStartup: Boolean, mpdHost: String, mpdPort: Number}";
+    var scheme = "{dataPath: String, useLibCache: Boolean, prefix: String, loadLibOnStartup: Boolean, mpdHost: String, mpdPort: Number, enableStats: Boolean}";
     if (!typeCheck.typeCheck(scheme, opts)) {
         console.log("WARNING: some options provided to mipod contain unknown or invalid properties. You should fix them.");
         console.log("Options provided: " + JSON.stringify(options));
@@ -52,13 +53,16 @@ function registerMethod(methodHandler, methodRegistration, options) {
     }
 
     MpdClient.configure(opts.mpdHost, opts.mpdPort);
-    var lib = new Library.Loader();
-    lib.setDataPath(opts.dataPath);
+    var library = new lib.Library();
+    library.setDataPath(opts.dataPath);
     if (opts.useLibCache) {
-        lib.setUseCacheFile(true);
+        library.setUseCacheFile(true);
     }
     if (opts.loadLibOnStartup) {
-        lib.forceRefresh();
+        library.init();
     }
-    methodRegistration(methodHandler, opts.prefix, lib);
+    if (opts.enableStats) {
+        new Statistics(library);
+    }
+    methodRegistration(methodHandler, opts.prefix, library);
 }

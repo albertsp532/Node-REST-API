@@ -20,7 +20,7 @@ SOFTWARE.
 
 /// <reference path="type-check/type-check.d.ts" />
 
-import Library = require('./Library');
+import lib = require('./Library');
 import MpdStatus = require('./MpdStatus');
 import MpdEntries = require('./MpdEntries');
 import MpdEntry = require('./libtypes/MpdEntry');
@@ -53,7 +53,7 @@ interface RouteInfo {
 }
 
 "use strict";
-export function register(app: express.Application, prefix: string, library: Library.Loader) {
+export function register(app: express.Application, prefix: string, library: lib.Library) {
 
     var routes: RouteInfo[] = [];
 
@@ -191,31 +191,44 @@ export function register(app: express.Application, prefix: string, library: Libr
         }
     });
 
-    httpGet('/custom/:command', function(req, res) {
-        answerOnPromise(MpdClient.custom(req.params.command), res);
-    });
-
-    httpGet('/lib-loadonce', function(req, res) {
-        var status: string = library.loadOnce();
-        res.send({status: status});
-    });
-
-    httpGet('/lib-reload', function(req, res) {
-        var status: string = library.forceRefresh();
-        res.send({status: status});
-    });
-
-    httpGet('/lib-progress', function(req, res) {
-        res.send({progress: library.progress()});
-    });
-
-    httpPost('/lib-get/:start/:count', function(req, res) {
-        if (check("{treeDesc: Maybe [String], leafDesc: Maybe [String]}", req.body, res)) {
-            var treeDesc: string[] = req.body.treeDesc || ["genre","albumArtist|artist","album"];
-            var page = library.getPage(+req.params.start, +req.params.count, treeDesc, req.body.leafDesc);
-            res.send(page);
+    httpPost('/custom', function(req, res) {
+        if (check("{command: String, stopper: Maybe String, parser: Maybe String}", req.body, res)) {
+            MpdClient.custom(req.body.command, req.body.stopper).then(function(mpdResponse: string) {
+                var response: any = mpdResponse;
+                if (req.body.parser === "entries") {
+                    response = MpdEntries.readEntries(mpdResponse);
+                } else if (req.body.parser === "status") {
+                    response = MpdStatus.parse(mpdResponse);
+                }
+                res.send(response);
+            }).fail(function(reason: Error) {
+                console.log("Application error: " + reason.message);
+                res.status(500).send(String(reason));
+            }).done();
         }
     });
+
+//    httpGet('/lib-loadonce', function(req, res) {
+//        var status: string = library.loadOnce();
+//        res.send({status: status});
+//    });
+//
+//    httpGet('/lib-reload', function(req, res) {
+//        var status: string = library.forceRefreshforceRefresh();
+//        res.send({status: status});
+//    });
+//
+//    httpGet('/lib-progress', function(req, res) {
+//        res.send({progress: library.progress()});
+//    });
+//
+//    httpPost('/lib-get/:start/:count', function(req, res) {
+//        if (check("{treeDesc: Maybe [String], leafDesc: Maybe [String]}", req.body, res)) {
+//            var treeDesc: string[] = req.body.treeDesc || ["genre","albumArtist|artist","album"];
+//            var page = library.getPage(+req.params.start, +req.params.count, treeDesc, req.body.leafDesc);
+//            res.send(page);
+//        }
+//    });
 
     httpPost('/lsinfo', function(req, res) {
         if (check("{path: String, req.body.leafDesc: Maybe [String]}", req.body, res)) {

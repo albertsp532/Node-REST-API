@@ -41,6 +41,7 @@ interface ParserInfo {
     songs: SongInfo[];
     lines: string[];
     cursor: number;
+    mpd: MpdClient;
 }
 
 class LoadingListener {
@@ -48,7 +49,9 @@ class LoadingListener {
     private hTimeout: any;
     private totalItems: number;
     private nbSent: number;
-    constructor(public pushHandler: (data: any, nbItems: number)=>void,
+    private finished: boolean = false;
+
+    constructor(public pushHandler: (data: Page, nbItems: number)=>void,
                 public finishedHandler: (nbItems: number)=>void,
                 public maxBatchSize: number,
                 public treeDescriptor: string[],
@@ -64,6 +67,7 @@ class LoadingListener {
         if (this.nbSent === nbItems) {
             this.finishedHandler(nbItems);
             this.totalItems = -1;
+            this.finished = true;
         }
     }
 
@@ -93,31 +97,38 @@ class LoadingListener {
             } else if (this.nbSent === this.totalItems) {
                 this.finishedHandler(this.totalItems);
                 this.totalItems = -1;
+                this.finished = true;
             }
         } else {
             if (this.nbSent === this.totalItems) {
                 this.finishedHandler(this.totalItems);
                 this.totalItems = -1;
+                this.finished = true;
             }
         }
     }
+
+    public isFinished(): boolean {
+        return this.finished;
+    }
 }
 
-export interface LoadingData {
+export interface Page {
     status: string;
     finished: boolean;
     next: number;
     data: any;
 }
 
-export class Loader {
+export class Library {
     private dataPath: string = "data/";
     private useCacheFile: boolean = false;
     private allLoaded: boolean = false;
-    private loadingCounter: number = 0;
+    private deferredAllLoaded: q.Deferred<void> = q.defer<void>();
+    private loadingCounter: number = -1;
     private mpdContent: SongInfo[] = [];
     private tags: ThemeTags = {};
-    private loadingListener: LoadingListener = undefined;
+    private loadingListeners: LoadingListener[] = [];
 
     public setUseCacheFile(useCacheFile: boolean) {
         this.useCacheFile = useCacheFile;
@@ -127,74 +138,117 @@ export class Loader {
         this.dataPath = dataPath;
     }
 
-    public onLoadingProgress(pushHandler: (data: LoadingData, nbItems: number)=>void, finishedHandler: (nbItems: number)=>void, maxBatchSize: number, treeDescriptor: string[], leafDescriptor?: string[]) {
-        this.loadingListener = new LoadingListener(pushHandler, finishedHandler, maxBatchSize, treeDescriptor, leafDescriptor);
+    public init(): q.Promise<void> {
+        var that = this;
+        this.loadingCounter = 0;
+        return that.tagsLoader().then(function() {
+            return that.libLoader();
+        }).then(function() {
+            that.allLoaded = true;
+            that.deferredAllLoaded.resolve(null);
+        });
     }
 
-    public loadOnce(): string {
-        if (this.allLoaded) {
-            // Already loaded, no need to load again.
-            return "Already loaded";
-        } else if (this.loadingCounter > 0) {
-            // Already started to load => ignore
-            return "Load in progress";
-        } else {
-            var that = this;
-            LibCache.loadTags(this.tagsFile()).then(function(data: ThemeTags) {
+    private tagsLoader(): q.Promise<void> {
+        var that = this;
+        return LibCache.loadTags(this.tagsFile()).then(function(data: ThemeTags) {
                 that.tags = data;
             }).fail(function(reason: Error) {
                 console.log("Could not read tags: " + reason.message);
-            }).done();
+            });
+    }
 
-            if (this.useCacheFile) {
-                LibCache.loadCache(this.cacheFile()).then(function(data: SongInfo[]) {
-                    that.mpdContent = data;
-                    that.loadingCounter = data.length;
-                    if (that.loadingCounter === 0) {
-                        // Cache file is empty, so we'll try MPD anyway
-                        console.log("Loading from MPD because cache is empty");
-                        that.loadAllLib();
-                    } else {
-                        that.allLoaded = true;
-                        if (that.loadingListener) {
-                            that.loadingListener.setTotalItems(that.mpdContent.length);
-                            that.loadingListener.pushBatches(data, that.tags, 0);
-                        }
-                    }
-                }).fail(function(reason: Error) {
-                    console.log("Could not read cache: " + reason.message);
-                    that.loadAllLib();
-                }).done();
-                return "Start loading from cache";
-            } else {
-                this.loadAllLib();
-                return "Start loading from MPD";
-            }
+    private libLoader(): q.Promise<void> {
+        var that = this;
+        if (this.useCacheFile) {
+            return LibCache.loadCache(that.cacheFile()).then(function(data: SongInfo[]) {
+                that.mpdContent = data;
+                that.loadingCounter = data.length;
+                if (that.loadingCounter === 0) {
+                    // Cache file is empty, so we'll try MPD anyway
+                    console.log("Loading from MPD because cache is empty");
+                    return that.loadAllLib();
+                } else {
+                    that.allLoaded = true;
+                    that.deferredAllLoaded.resolve(null);
+                    that.loadingListeners.forEach(function(listener: LoadingListener) {
+                        listener.setTotalItems(that.mpdContent.length);
+                        listener.pushBatches(data, that.tags, 0);
+                    });
+                    that.loadingListeners = [];
+                }
+            }).fail(function(reason: Error) {
+                console.log("Could not read cache: " + reason.message);
+            });
+        } else {
+            return that.loadAllLib();
         }
     }
 
-    public forceRefresh(): string {
-        this.allLoaded = false;
-        this.loadingCounter = 0;
-        this.mpdContent = [];
-        this.tags = {};
-        this.loadAllLib();
-        return "OK";
+    public notifyLoading(pushHandler: (data: Page, nbItems: number)=>void, finishedHandler: (nbItems: number)=>void, maxBatchSize: number, treeDescriptor: string[], leafDescriptor?: string[]) {
+        // Lazy init if necessary
+        if (this.loadingCounter < 0) {
+            this.init();
+        }
+        var that = this;
+
+        // Create new listener and push already loaded data
+        var listener: LoadingListener = new LoadingListener(pushHandler, finishedHandler, maxBatchSize, treeDescriptor, leafDescriptor);
+        listener.setTotalItems(that.mpdContent.length);
+        listener.pushBatches(that.mpdContent, that.tags, 0);
+
+        // Clean any inactive listeners, push the new one
+        var stillActive: LoadingListener[] = [];
+        stillActive.push(listener);
+        this.loadingListeners.forEach(function(listener) {
+            if (!listener.isFinished()) {
+                stillActive.push(listener);
+            }
+        });
+        this.loadingListeners = stillActive;
     }
 
-    public getPage(start: number, count: number, treeDescriptor: string[], leafDescriptor?: string[]): LoadingData {
-        var end: number = Math.min(this.mpdContent.length, start + count);
-        var subTree: Tree = organizer(
-            this.getSongsPage(this.mpdContent, start, end),
-                this.tags,
-                treeDescriptor,
-                leafDescriptor);
-        return {
-            status: "OK",
-            finished: (this.allLoaded && end === this.mpdContent.length),
-            next: end,
-            data: subTree.root
-        };
+    public clearCache(): q.Promise<void> {
+        var deferred: q.Deferred<void> = q.defer<void>();
+        this.allLoaded = false;
+        this.deferredAllLoaded = q.defer<void>();
+        this.loadingCounter = -1;
+        this.mpdContent = [];
+        this.tags = {};
+        if (this.useCacheFile) {
+            LibCache.saveCache(this.cacheFile(), this.mpdContent).then(function() {
+                deferred.resolve(null);
+            }).fail(function(reason: Error) {
+                console.log("Cache not saved: " + reason.message);
+                deferred.reject(reason);
+            });
+        } else {
+            deferred.resolve(null);
+        }
+        return deferred.promise;
+    }
+
+    public getPage(start: number, count: number, treeDescriptor: string[], leafDescriptor?: string[]): q.Promise<Page> {
+
+        if (this.loadingCounter < 0) {
+            this.init();
+        }
+
+        var that = this;
+        return this.deferredAllLoaded.promise.then(function() {
+            var end: number = Math.min(that.mpdContent.length, start + count);
+            var subTree: Tree = organizer(
+                that.getSongsPage(that.mpdContent, start, end),
+                    that.tags,
+                    treeDescriptor,
+                    leafDescriptor);
+            return {
+                status: "OK",
+                finished: (that.allLoaded && end === that.mpdContent.length),
+                next: end,
+                data: subTree.root
+            };
+        });
     }
 
     public progress(): number {
@@ -222,76 +276,89 @@ export class Loader {
     }
 
     public readTag(tagName: string, targets: TagTarget[]): q.Promise<ThemeTags> {
-        if (!this.allLoaded) {
-            throw new Error("Tag reading service is unavailable until the library is fully loaded.");
-        }
-        var returnTags: ThemeTags = {};
-        for (var i = 0; i < targets.length; i++) {
-            var targetType: string = targets[i].targetType;
-            var target: string = targets[i].target;
-            if (this.tags[targetType] !== undefined
-                    && this.tags[targetType][target] !== undefined
-                    && this.tags[targetType][target][tagName] !== undefined) {
+        var deferred: q.Deferred<ThemeTags> = q.defer<ThemeTags>();
+        var that = this;
+        this.deferredAllLoaded.promise.then(function() {
+            var returnTags: ThemeTags = {};
+            for (var i = 0; i < targets.length; i++) {
+                var targetType: string = targets[i].targetType;
+                var target: string = targets[i].target;
                 var tag: TagsMap = {};
                 var item: ItemTags = {};
                 var theme: ThemeTags = {};
-                tag[tagName] = this.tags[targetType][target][tagName];
+                if (that.tags[targetType] !== undefined
+                        && that.tags[targetType][target] !== undefined
+                        && that.tags[targetType][target][tagName] !== undefined) {
+                    tag[tagName] = that.tags[targetType][target][tagName];
+                } else {
+                    // Tag not found
+                    tag[tagName] = null;
+                }
                 item[target] = tag;
                 theme[targetType] = item;
                 tools.override(returnTags, theme);
             }
-        }
-        return q.fcall<ThemeTags>(function() {
-            return returnTags;
-        });
-    }
-
-    public writeTag(tagName: string, tagValue: string, targets: TagTarget[]): q.Promise<string> {
-        if (!this.allLoaded) {
-            throw new Error("Tag writing service is unavailable until the library is fully loaded.");
-        }
-        for (var i = 0; i < targets.length; i++) {
-            var tag: TagsMap = {};
-            var item: ItemTags = {};
-            var theme: ThemeTags = {};
-            tag[tagName] = tagValue;
-            item[targets[i].target] = tag;
-            theme[targets[i].targetType] = item;
-            tools.override(this.tags, theme);
-        }
-        var deferred: q.Deferred<string> = q.defer<string>();
-        LibCache.saveTags(this.tagsFile(), this.tags).then(function() {
-            deferred.resolve("Tag succesfully written");
-        }).fail(function(reason: Error) {
-            console.log("Cache not saved: " + reason.message);
-            deferred.reject(reason);
+            deferred.resolve(returnTags);
         });
         return deferred.promise;
     }
 
-    public deleteTag(tagName: string, targets: TagTarget[]): q.Promise<string> {
-        if (!this.allLoaded) {
-            throw new Error("Tag writing service is unavailable until the library is fully loaded.");
-        }
-        for (var i = 0; i < targets.length; i++) {
-            if (this.tags.hasOwnProperty(targets[i].targetType)
-                    && this.tags[targets[i].targetType].hasOwnProperty(targets[i].target)
-                    && this.tags[targets[i].targetType][targets[i].target].hasOwnProperty(tagName)) {
-                delete this.tags[targets[i].targetType][targets[i].target][tagName];
-                if (Object.keys(this.tags[targets[i].targetType][targets[i].target]).length === 0) {
-                    delete this.tags[targets[i].targetType][targets[i].target];
-                    if (Object.keys(this.tags[targets[i].targetType]).length === 0) {
-                        delete this.tags[targets[i].targetType];
+    public writeTag(tagName: string, tagValue: string, targets: TagTarget[]): q.Promise<ThemeTags> {
+        var deferred: q.Deferred<ThemeTags> = q.defer<ThemeTags>();
+        var that = this;
+        this.deferredAllLoaded.promise.then(function() {
+            var returnTags: ThemeTags = {};
+            for (var i = 0; i < targets.length; i++) {
+                var tag: TagsMap = {};
+                var item: ItemTags = {};
+                var theme: ThemeTags = {};
+                tag[tagName] = tagValue;
+                item[targets[i].target] = tag;
+                theme[targets[i].targetType] = item;
+                tools.override(that.tags, theme);
+                tools.override(returnTags, theme);
+            }
+            LibCache.saveTags(that.tagsFile(), that.tags).then(function() {
+                deferred.resolve(returnTags);
+            }).fail(function(reason: Error) {
+                console.log("Cache not saved: " + reason.message);
+                deferred.reject(reason);
+            });
+        });
+        return deferred.promise;
+    }
+
+    public deleteTag(tagName: string, targets: TagTarget[]): q.Promise<ThemeTags> {
+        var deferred: q.Deferred<ThemeTags> = q.defer<ThemeTags>();
+        var that = this;
+        this.deferredAllLoaded.promise.then(function() {
+            var returnTags: ThemeTags = {};
+            for (var i = 0; i < targets.length; i++) {
+                var tag: TagsMap = {};
+                var item: ItemTags = {};
+                var theme: ThemeTags = {};
+                tag[tagName] = null;
+                item[targets[i].target] = tag;
+                theme[targets[i].targetType] = item;
+                tools.override(returnTags, theme);
+                if (that.tags.hasOwnProperty(targets[i].targetType)
+                        && that.tags[targets[i].targetType].hasOwnProperty(targets[i].target)
+                        && that.tags[targets[i].targetType][targets[i].target].hasOwnProperty(tagName)) {
+                    delete that.tags[targets[i].targetType][targets[i].target][tagName];
+                    if (Object.keys(that.tags[targets[i].targetType][targets[i].target]).length === 0) {
+                        delete that.tags[targets[i].targetType][targets[i].target];
+                        if (Object.keys(that.tags[targets[i].targetType]).length === 0) {
+                            delete that.tags[targets[i].targetType];
+                        }
                     }
                 }
             }
-        }
-        var deferred: q.Deferred<string> = q.defer<string>();
-        LibCache.saveTags(this.tagsFile(), this.tags).then(function() {
-            deferred.resolve("Tag succesfully deleted");
-        }).fail(function(reason: Error) {
-            console.log("Cache not saved: " + reason.message);
-            deferred.reject(reason);
+            LibCache.saveTags(that.tagsFile(), that.tags).then(function() {
+                deferred.resolve(returnTags);
+            }).fail(function(reason: Error) {
+                console.log("Cache not saved: " + reason.message);
+                deferred.reject(reason);
+            });
         });
         return deferred.promise;
     }
@@ -304,34 +371,44 @@ export class Loader {
         return this.dataPath + "/libtags.json";
     }
 
-    private loadAllLib() {
+    private loadAllLib(): q.Promise<void> {
+        var start = new Date().getTime();
         var that = this;
-        this.loadDirForLib(this.mpdContent, "").then(function() {
+        var mpdClient: MpdClient = new MpdClient();
+        return mpdClient.connect().then(function() {
+            return that.loadDirForLib(mpdClient, that.mpdContent, "");
+        }).then(function() {
+            var elapsed = new Date().getTime() - start;
+            console.log("finished in " + elapsed / 1000 + " seconds");
             that.allLoaded = true;
-            if (that.loadingListener) {
-                that.loadingListener.setTotalItems(that.mpdContent.length);
-            }
+            that.deferredAllLoaded.resolve(null);
+            that.loadingListeners.forEach(function(listener: LoadingListener) {
+                listener.setTotalItems(that.mpdContent.length);
+            });
             if (that.useCacheFile) {
                 LibCache.saveCache(that.cacheFile(), that.mpdContent).fail(function(reason: Error) {
                     console.log("Cache not saved: " + reason.message);
                 });
             }
-        }).done();
+        }).fin(function() {
+            mpdClient.close();
+        });
     }
 
-    private loadDirForLib(songs: SongInfo[], dir: string): q.Promise<ParserInfo> {
+    private loadDirForLib(mpd: MpdClient, songs: SongInfo[], dir: string): q.Promise<ParserInfo> {
         var that = this;
-        return MpdClient.lsinfo(dir)
+        return mpd.lsinfo(dir)
             .then(function(response: string) {
                 var lines: string[] = response.split("\n");
-                return that.parseNext({ songs: songs, lines: lines, cursor: 0 });
+                return that.parseNext({ mpd: mpd, songs: songs, lines: lines, cursor: 0 });
             });
     }
 
     private collect(song: SongInfo) {
-        if (this.loadingListener) {
-            this.loadingListener.collect(song, this.tags);
-        }
+        var that = this;
+        this.loadingListeners.forEach(function(listener: LoadingListener) {
+            listener.collect(song, that.tags);
+        });
     }
 
     /*
@@ -377,10 +454,10 @@ export class Loader {
                 currentSong !== null && this.collect(currentSong);
                 currentSong = null;
                 // Load (async) the directory content, and then only continue on parsing what remains here
-                return this.loadDirForLib(parser.songs, entry.value)
+                return this.loadDirForLib(parser.mpd, parser.songs, entry.value)
                     .then(function(subParser: ParserInfo) {
                         // this "subParser" contains gathered songs, whereas the existing "parser" contains previous cursor information that we need to continue on this folder
-                        return that.parseNext({ songs: subParser.songs, lines: parser.lines, cursor: parser.cursor + 1 });
+                        return that.parseNext({ mpd: subParser.mpd, songs: subParser.songs, lines: parser.lines, cursor: parser.cursor + 1 });
                     });
             } else if (entry.key === "playlist") {
                 // skip

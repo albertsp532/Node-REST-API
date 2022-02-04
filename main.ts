@@ -25,7 +25,8 @@ SOFTWARE.
 import routes = require('./routes');
 import websocket = require('./websocket');
 import tools = require('./tools');
-import Library = require('./Library');
+import lib = require('./Library');
+import Statistics = require('./Statistics');
 import MpdClient = require('./MpdClient');
 import O = require('./Options');
 import typeCheck = require('type-check');
@@ -38,17 +39,17 @@ export function asRest(expressApp: express.Application, options?: O.IOptions) {
     registerMethod(expressApp, routes.register, options);
 }
 
-export function asWebSocket(socket: socketio.Socket, options?: O.IOptions) {
-    registerMethod(socket, websocket.register, options);
+export function asWebSocket(socketMngr: socketio.SocketManager, options?: O.IOptions) {
+    registerMethod(socketMngr, websocket.register, options);
 }
 
 function registerMethod(methodHandler: any,
-                        methodRegistration: (methodHandler: any, prefix: string, lib: Library.Loader)=>void,
+                        methodRegistration: (methodHandler: any, prefix: string, library: lib.Library)=>void,
                         options?: O.IOptions) {
     var opts: O.IOptions = options ? tools.extend(options, O.Options.default()) : O.Options.default();
 
     // Since this module can be imported from JS applications (non-typescript), we'll add some runtime type-check on Options
-    var scheme: string = "{dataPath: String, useLibCache: Boolean, prefix: String, loadLibOnStartup: Boolean, mpdHost: String, mpdPort: Number}";
+    var scheme: string = "{dataPath: String, useLibCache: Boolean, prefix: String, loadLibOnStartup: Boolean, mpdHost: String, mpdPort: Number, enableStats: Boolean}";
     if (!typeCheck.typeCheck(scheme, opts)) {
         console.log("WARNING: some options provided to mipod contain unknown or invalid properties. You should fix them.");
         console.log("Options provided: " + JSON.stringify(options));
@@ -56,14 +57,17 @@ function registerMethod(methodHandler: any,
     }
 
     MpdClient.configure(opts.mpdHost, opts.mpdPort);
-    var lib: Library.Loader = new Library.Loader();
-    lib.setDataPath(opts.dataPath);
+    var library: lib.Library = new lib.Library();
+    library.setDataPath(opts.dataPath);
     if (opts.useLibCache) {
-        lib.setUseCacheFile(true);
+        library.setUseCacheFile(true);
     }
     if (opts.loadLibOnStartup) {
-        lib.forceRefresh();
+        library.init();
     }
-    methodRegistration(methodHandler, opts.prefix, lib);
+    if (opts.enableStats) {
+        new Statistics(library);
+    }
+    methodRegistration(methodHandler, opts.prefix, library);
 }
 
