@@ -23,8 +23,6 @@ import MpdClient = require('./MpdClient');
 import MpdStatus = require('./MpdStatus');
 import MpdEntries = require('./MpdEntries');
 import MpdEntry = require('./libtypes/MpdEntry');
-import TagsMap = require('./libtypes/TagsMap');
-import ItemTags = require('./libtypes/ItemTags');
 import ThemeTags = require('./libtypes/ThemeTags');
 import TagTarget = require('./libtypes/TagTarget');
 import lib = require('./Library');
@@ -37,33 +35,33 @@ class Statistics {
 
     private lastPlayed: string = "";
 
-    constructor(public library: lib.Library) {
+    constructor(public library: lib.Library, public onTaggedClbk: (tags: ThemeTags)=>void) {
         this.idleLoop();
     }
 
-    private idleOnce(): q.Promise<void> {
-        var that = this;
-        return MpdClient.idle()
-            .then(MpdClient.current)
-            .then(MpdEntries.readEntries)
-            .then(function(entries: MpdEntry[]) {
-                if (entries.length > 0 && entries[0].song) {
-                    return entries[0].song.file;
-                }
-                return null;
-            })
-            .then(function(file) {
-                if (that.lastPlayed != file) {
-                    that.nowPlaying(file);
-                }
-            });
-    }
+//    private idleOnce(): q.Promise<void> {
+//        var that = this;
+//        return MpdClient.idle()
+//            .then(MpdClient.current)
+//            .then(MpdEntries.readEntries)
+//            .then(function(entries: MpdEntry[]) {
+//                if (entries.length > 0 && entries[0].song) {
+//                    return entries[0].song.file;
+//                }
+//                return null;
+//            })
+//            .then(function(file) {
+//                if (that.lastPlayed != file) {
+//                    that.nowPlaying(file);
+//                }
+//            });
+//    }
 
     private idleLoop() {
-        var that = this;
-        this.idleOnce().then(function() {
-            that.idleLoop();
-        });
+//        var that = this;
+//        this.idleOnce().then(function() {
+//            that.idleLoop();
+//        });
     }
 
     private nowPlaying(file: string) {
@@ -76,13 +74,18 @@ class Statistics {
         });
 
         var that = this;
+        // Note: when tag doesn't exist, readTags returns it as "null"
+        // "null + 1" = 1... [sic]
         this.library.readTag(tagTimes, targets).then(function(tag: ThemeTags) {
             if (tag.hasOwnProperty("song")
                     && tag["song"].hasOwnProperty(file)
                     && tag["song"][file].hasOwnProperty(tagTimes)) {
                 try {
                     var times: number = +tag["song"][file][tagTimes];
-                    that.library.writeTag(tagTimes, String(times+1), targets);
+                    that.library.writeTag(tagTimes, String(times+1), targets)
+                            .then(function(writtenTag: ThemeTags) {
+                                that.onTaggedClbk(writtenTag);
+                            });
                 } catch (err) {
                     console.log("Could not write tag " + tagTimes + " on " + file);
                     console.log(err);
@@ -90,6 +93,9 @@ class Statistics {
             }
         });
         this.library.writeTag(tagLast, String(new Date()), targets)
+                .then(function(writtenTag: ThemeTags) {
+                    that.onTaggedClbk(writtenTag);
+                });
     }
 }
 export = Statistics;

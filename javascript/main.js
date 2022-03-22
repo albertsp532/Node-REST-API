@@ -24,7 +24,6 @@ var routes = require('./routes');
 var websocket = require('./websocket');
 var tools = require('./tools');
 var lib = require('./Library');
-var Statistics = require('./Statistics');
 var MpdClient = require('./MpdClient');
 var O = require('./Options');
 var typeCheck = require('type-check');
@@ -61,8 +60,5 @@ function registerMethod(methodHandler, methodRegistration, options) {
     if (opts.loadLibOnStartup) {
         library.init();
     }
-    if (opts.enableStats) {
-        new Statistics(library);
-    }
-    methodRegistration(methodHandler, opts.prefix, library);
+    methodRegistration(methodHandler, opts.prefix, library, opts.enableStats);
 }

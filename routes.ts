@@ -21,10 +21,12 @@ SOFTWARE.
 /// <reference path="type-check/type-check.d.ts" />
 
 import lib = require('./Library');
+import Statistics = require('./Statistics');
 import MpdStatus = require('./MpdStatus');
 import MpdEntries = require('./MpdEntries');
 import MpdEntry = require('./libtypes/MpdEntry');
 import MpdClient = require('./MpdClient');
+import ThemeTags = require('./libtypes/ThemeTags');
 import q = require('q');
 import typeCheck = require('type-check');
 import express = require('express');
@@ -53,7 +55,7 @@ interface RouteInfo {
 }
 
 "use strict";
-export function register(app: express.Application, prefix: string, library: lib.Library) {
+export function register(app: express.Application, prefix: string, library: lib.Library, enableStats: boolean) {
 
     var routes: RouteInfo[] = [];
 
@@ -72,6 +74,11 @@ export function register(app: express.Application, prefix: string, library: lib.
     var httpDelete = function(path: string, clbk, description?: string) {
         app.delete(prefix + path, clbk);
         routes.push({path: prefix + path, description: description, verb: "DELETE"});
+    }
+
+    if (enableStats) {
+        new Statistics(library, function(tag: ThemeTags) {
+        });
     }
 
     httpGet('/play', function(req, res) {
@@ -231,7 +238,7 @@ export function register(app: express.Application, prefix: string, library: lib.
 //    });
 
     httpPost('/lsinfo', function(req, res) {
-        if (check("{path: String, req.body.leafDesc: Maybe [String]}", req.body, res)) {
+        if (check("{path: String, leafDesc: Maybe [String]}", req.body, res)) {
             library.lsInfo(req.body.path, req.body.leafDesc).then(function(lstContent: any[]) {
                 res.send(lstContent);
             });
@@ -263,6 +270,18 @@ export function register(app: express.Application, prefix: string, library: lib.
         if (check("{targets: [{targetType: String, target: String}]}", req.body, res)) {
             answerOnPromise(library.deleteTag(tagName, req.body.targets), res);
         }
+    });
+
+    httpGet('/playlist/:idx', function(req, res) {
+        var idx: number = +req.params.idx;
+        answerOnPromise(
+            library.lsInfo("", ["playlist"]).then(function(lstContent: any[]) {
+                if (idx >= 0 && lstContent.length > idx && lstContent[idx].playlist) {
+                    return MpdClient.playEntry(lstContent[idx].playlist);
+                }
+            }),
+            res
+        );
     });
 
     app.get(prefix + '/', function(req, res) {

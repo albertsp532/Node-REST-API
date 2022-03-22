@@ -67,7 +67,7 @@ var LibCache = (function () {
 
     LibCache.saveTags = function (filepath, data) {
         var deferred = q.defer();
-        fs.writeFile(filepath, JSON.stringify(data), function (err) {
+        fs.writeFile(filepath, JSON.stringify(data, null, 2), function (err) {
             if (err) {
                 deferred.reject(new Error(err.code));
             } else {

@@ -35,6 +35,7 @@ var LoadingListener = (function () {
         this.treeDescriptor = treeDescriptor;
         this.leafDescriptor = leafDescriptor;
         this.finished = false;
+        console.log("Starting LoadingListener for a client");
         this.collected = [];
         this.hTimeout = null;
         this.totalItems = -1;
@@ -43,9 +44,7 @@ var LoadingListener = (function () {
     LoadingListener.prototype.setTotalItems = function (nbItems) {
         this.totalItems = nbItems;
         if (this.nbSent === nbItems) {
-            this.finishedHandler(nbItems);
-            this.totalItems = -1;
-            this.finished = true;
+            this.notifyFinished();
         }
     };
 
@@ -73,17 +72,20 @@ var LoadingListener = (function () {
                     that.pushBatches(data, tags, start);
                 }, 200);
             } else if (this.nbSent === this.totalItems) {
-                this.finishedHandler(this.totalItems);
-                this.totalItems = -1;
-                this.finished = true;
+                this.notifyFinished();
             }
         } else {
             if (this.nbSent === this.totalItems) {
-                this.finishedHandler(this.totalItems);
-                this.totalItems = -1;
-                this.finished = true;
+                this.notifyFinished();
             }
         }
+    };
+
+    LoadingListener.prototype.notifyFinished = function () {
+        console.log("Notifying client Library has finished to load");
+        this.finishedHandler(this.totalItems);
+        this.totalItems = -1;
+        this.finished = true;
     };
 
     LoadingListener.prototype.isFinished = function () {
@@ -112,11 +114,13 @@ var Library = (function () {
     };
 
     Library.prototype.init = function () {
+        console.log("Starting to load Library");
         var that = this;
         this.loadingCounter = 0;
         return that.tagsLoader().then(function () {
             return that.libLoader();
         }).then(function () {
+            console.log("Finished to load Library");
             that.allLoaded = true;
             that.deferredAllLoaded.resolve(null);
         });

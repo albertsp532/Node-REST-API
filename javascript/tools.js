@@ -66,3 +66,14 @@ function splitOnce(str, separator) {
     }
 }
 exports.splitOnce = splitOnce;
+
+function mapEquals(map1, map2, keysToCheck) {
+    for (var i = 0; i < keysToCheck.length; i++) {
+        var key = keysToCheck[i];
+        if (map1[key] !== map2[key]) {
+            return false;
+        }
+    }
+    return true;
+}
+exports.mapEquals = mapEquals;

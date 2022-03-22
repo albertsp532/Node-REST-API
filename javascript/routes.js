@@ -17,6 +17,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+var Statistics = require('./Statistics');
 var MpdStatus = require('./MpdStatus');
 var MpdEntries = require('./MpdEntries');
 
@@ -42,7 +43,7 @@ function check(typeDesc, obj, httpResponse) {
 }
 
 "use strict";
-function register(app, prefix, library) {
+function register(app, prefix, library, enableStats) {
     var routes = [];
 
     var httpGet = function (path, clbk, description) {
@@ -61,6 +62,11 @@ function register(app, prefix, library) {
         app.delete(prefix + path, clbk);
         routes.push({ path: prefix + path, description: description, verb: "DELETE" });
     };
+
+    if (enableStats) {
+        new Statistics(library, function (tag) {
+        });
+    }
 
     httpGet('/play', function (req, res) {
         answerOnPromise(MpdClient.play(), res);
@@ -217,7 +223,7 @@ function register(app, prefix, library) {
     //        }
     //    });
     httpPost('/lsinfo', function (req, res) {
-        if (check("{path: String, req.body.leafDesc: Maybe [String]}", req.body, res)) {
+        if (check("{path: String, leafDesc: Maybe [String]}", req.body, res)) {
             library.lsInfo(req.body.path, req.body.leafDesc).then(function (lstContent) {
                 res.send(lstContent);
             });
@@ -249,6 +255,15 @@ function register(app, prefix, library) {
         if (check("{targets: [{targetType: String, target: String}]}", req.body, res)) {
             answerOnPromise(library.deleteTag(tagName, req.body.targets), res);
         }
+    });
+
+    httpGet('/playlist/:idx', function (req, res) {
+        var idx = +req.params.idx;
+        answerOnPromise(library.lsInfo("", ["playlist"]).then(function (lstContent) {
+            if (idx >= 0 && lstContent.length > idx && lstContent[idx].playlist) {
+                return MpdClient.playEntry(lstContent[idx].playlist);
+            }
+        }), res);
     });
 
     app.get(prefix + '/', function (req, res) {

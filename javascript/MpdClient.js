@@ -299,6 +299,25 @@ var MpdClient = (function () {
         return MpdClient.execAndClose("idle");
     };
 
+    MpdClient.idleLoop = function (options, clbk, args) {
+        var mpdClient = new MpdClient();
+        mpdClient.connect().then(function () {
+            mpdClient.idleLoop(options, clbk, args);
+        });
+    };
+
+    MpdClient.prototype.idleLoop = function (options, clbk, args) {
+        console.log("Entering idle...");
+        var that = this;
+        return this.exec("idle " + options).then(function (whatever) {
+            clbk(args);
+            that.idleLoop(options, clbk, args);
+        }).fail(function (reason) {
+            // re-initiate idle
+            MpdClient.idleLoop(options, clbk, args);
+        });
+    };
+
     MpdClient.playlistInfo = function () {
         return MpdClient.execAndClose("playlistinfo");
     };
